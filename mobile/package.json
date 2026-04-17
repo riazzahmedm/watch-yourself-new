@@ -13,6 +13,7 @@
     "@shopify/flash-list": "^2.3.1",
     "@supabase/supabase-js": "^2.103.3",
     "@tanstack/react-query": "^5.99.0",
+    "babel-preset-expo": "~54.0.10",
     "expo": "~54.0.33",
     "expo-haptics": "^55.0.14",
     "expo-image": "^55.0.8",
