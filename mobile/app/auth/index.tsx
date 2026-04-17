@@ -1,149 +1,159 @@
 // ============================================================
-// Auth Screen — app/auth/index.tsx
-// Google OAuth via expo-web-browser (openAuthSessionAsync).
-// Uses Supabase PKCE flow: browser returns ?code= which is
-// exchanged for a session in _layout.tsx deep-link handler.
+// Auth Screen — email + password (sign in & sign up)
 // ============================================================
 
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   StyleSheet,
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
 } from "react-native";
 import { useState } from "react";
-import * as WebBrowser from "expo-web-browser";
-import * as Linking from "expo-linking";
 import { supabase } from "@/lib/supabase";
 import { Colors } from "@/constants/colors";
 
-// Warm up the browser on Android so it opens instantly
-WebBrowser.maybeCompleteAuthSession();
+type Mode = "signin" | "signup";
 
 export default function AuthScreen() {
-  const [loading, setLoading] = useState<"google" | "apple" | null>(null);
+  const [mode, setMode]       = useState<Mode>("signin");
+  const [email, setEmail]     = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  // ---- Google OAuth -----------------------------------------
-  const signInWithGoogle = async () => {
-    setLoading("google");
+  const handleSubmit = async () => {
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail || !password) {
+      Alert.alert("Missing fields", "Please enter your email and password.");
+      return;
+    }
+
+    setLoading(true);
     try {
-      // The redirect URL must EXACTLY match what's in Supabase →
-      // Authentication → URL Configuration → Redirect URLs
-      const redirectTo = Linking.createURL("/auth/callback");
-
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo,
-          skipBrowserRedirect: true, // we open the browser ourselves below
-        },
-      });
-
-      if (error) throw error;
-      if (!data.url) throw new Error("No OAuth URL returned from Supabase");
-
-      // openAuthSessionAsync closes the browser automatically once the
-      // redirect URL is detected — much cleaner than Linking.openURL
-      const result = await WebBrowser.openAuthSessionAsync(
-        data.url,
-        redirectTo
-      );
-
-      if (result.type === "success") {
-        // The deep-link handler in _layout.tsx handles the code exchange.
-        // Force-trigger it in case the app was already foregrounded.
-        const url = result.url;
-        const parsed = Linking.parse(url);
-        const code = parsed.queryParams?.code as string | undefined;
-        if (code) {
-          const { error: exchangeError } =
-            await supabase.auth.exchangeCodeForSession(code);
-          if (exchangeError) throw exchangeError;
-        }
+      if (mode === "signin") {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: trimmedEmail,
+          password,
+        });
+        if (error) throw error;
+        // Session set → auth listener in _layout.tsx routes to /(tabs)/discover
+      } else {
+        const { error } = await supabase.auth.signUp({
+          email: trimmedEmail,
+          password,
+        });
+        if (error) throw error;
+        Alert.alert(
+          "Check your email",
+          "We sent you a confirmation link. Tap it to activate your account, then sign in."
+        );
+        setMode("signin");
       }
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "Something went wrong";
-      Alert.alert("Sign in failed", message);
+      Alert.alert(
+        mode === "signin" ? "Sign in failed" : "Sign up failed",
+        err instanceof Error ? err.message : "Something went wrong"
+      );
     } finally {
-      setLoading(null);
+      setLoading(false);
     }
   };
 
-  // ---- Apple Sign In ----------------------------------------
-  const signInWithApple = () => {
-    Alert.alert(
-      "Coming soon",
-      "Apple Sign In requires a physical device and a paid Apple Developer account. Use Google for now."
-    );
-  };
-
   return (
-    <View style={styles.container}>
-      {/* Hero */}
-      <View style={styles.hero}>
-        <Text style={styles.emoji}>🎬</Text>
-        <Text style={styles.title}>Watch Yourself</Text>
-        <Text style={styles.subtitle}>
-          Understand yourself{"\n"}through movies
-        </Text>
-      </View>
-
-      {/* Mood preview pills */}
-      <View style={styles.moodRow}>
-        {["😔 Feeling Low", "🤯 Mind Blown", "😌 Comfort Watch"].map((m) => (
-          <View key={m} style={styles.moodPill}>
-            <Text style={styles.moodPillText}>{m}</Text>
-          </View>
-        ))}
-      </View>
-
-      {/* Auth buttons */}
-      <View style={styles.buttons}>
-        {/* Apple */}
-        <TouchableOpacity
-          style={[styles.btn, styles.appleBtn]}
-          onPress={signInWithApple}
-          activeOpacity={0.85}
-        >
-          <Text style={[styles.btnIcon, { color: Colors.background }]}>🍎</Text>
-          <Text style={[styles.btnText, styles.appleBtnText]}>
-            Continue with Apple
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    >
+      <ScrollView
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Hero */}
+        <View style={styles.hero}>
+          <Text style={styles.emoji}>🎬</Text>
+          <Text style={styles.title}>Watch Yourself</Text>
+          <Text style={styles.subtitle}>
+            Understand yourself{"\n"}through movies
           </Text>
-        </TouchableOpacity>
+        </View>
 
-        {/* Google */}
-        <TouchableOpacity
-          style={[styles.btn, styles.googleBtn]}
-          onPress={signInWithGoogle}
-          activeOpacity={0.85}
-          disabled={loading === "google"}
-        >
-          {loading === "google" ? (
-            <ActivityIndicator color={Colors.text} size="small" />
-          ) : (
-            <>
-              <Text style={[styles.btnIcon, { color: Colors.text }]}>G</Text>
-              <Text style={[styles.btnText, styles.googleBtnText]}>
-                Continue with Google
+        {/* Mood preview pills */}
+        <View style={styles.moodRow}>
+          {["😔 Feeling Low", "🤯 Mind Blown", "😌 Comfort Watch"].map((m) => (
+            <View key={m} style={styles.moodPill}>
+              <Text style={styles.moodPillText}>{m}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Form */}
+        <View style={styles.form}>
+          <TextInput
+            style={styles.input}
+            placeholder="Email"
+            placeholderTextColor={Colors.textMuted}
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
+            returnKeyType="next"
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Password"
+            placeholderTextColor={Colors.textMuted}
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            returnKeyType="done"
+            onSubmitEditing={handleSubmit}
+          />
+
+          <TouchableOpacity
+            style={[styles.btn, styles.primaryBtn]}
+            onPress={handleSubmit}
+            activeOpacity={0.85}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color={Colors.background} size="small" />
+            ) : (
+              <Text style={styles.primaryBtnText}>
+                {mode === "signin" ? "Sign In" : "Create Account"}
               </Text>
-            </>
-          )}
-        </TouchableOpacity>
-      </View>
+            )}
+          </TouchableOpacity>
 
-      <Text style={styles.legal}>
-        By continuing you agree to our Terms of Service{"\n"}and Privacy Policy
-      </Text>
-    </View>
+          {/* Mode toggle */}
+          <TouchableOpacity
+            onPress={() => setMode(mode === "signin" ? "signup" : "signin")}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.toggleText}>
+              {mode === "signin"
+                ? "Don't have an account? Sign up"
+                : "Already have an account? Sign in"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.legal}>
+          By continuing you agree to our Terms of Service{"\n"}and Privacy Policy
+        </Text>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    flexGrow: 1,
     backgroundColor: Colors.background,
     alignItems: "center",
     justifyContent: "space-between",
@@ -189,39 +199,40 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "500",
   },
-  buttons: {
+  form: {
     width: "100%",
     gap: 12,
   },
-  btn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    borderRadius: 14,
-    paddingVertical: 16,
-    width: "100%",
-  },
-  appleBtn: {
-    backgroundColor: Colors.text,
-  },
-  googleBtn: {
+  input: {
     backgroundColor: Colors.surface,
     borderWidth: 1,
     borderColor: Colors.border,
-  },
-  btnText: {
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
     fontSize: 16,
-    fontWeight: "600",
-  },
-  appleBtnText: {
-    color: Colors.background,
-  },
-  googleBtnText: {
     color: Colors.text,
   },
-  btnIcon: {
-    fontSize: 18,
+  btn: {
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryBtn: {
+    backgroundColor: Colors.accent,
+    marginTop: 4,
+  },
+  primaryBtnText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  toggleText: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    textAlign: "center",
+    marginTop: 4,
   },
   legal: {
     fontSize: 12,
