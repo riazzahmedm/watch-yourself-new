@@ -1,0 +1,36 @@
+# ============================================================
+# CineMood — Root .gitignore
+# ============================================================
+
+# ---- Secrets -----------------------------------------------
+.env
+.env.local
+.env.production
+*.pem
+*.key
+
+# ---- Mobile (Expo / React Native) --------------------------
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+mobile/web-build/
+mobile/expo-env.d.ts
+mobile/.DS_Store
+mobile/android/
+mobile/ios/
+mobile/*.jks
+mobile/*.p8
+mobile/*.p12
+mobile/*.mobileprovision
+mobile/*.orig.*
+mobile/coverage/
+
+# ---- Supabase ----------------------------------------------
+supabase/.branches/
+supabase/.temp/
+
+# ---- General -----------------------------------------------
+.DS_Store
+Thumbs.db
+*.log
+*.tsbuildinfo

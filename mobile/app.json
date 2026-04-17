@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "CineMood",
+    "slug": "cinemood",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "cinemood",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0a0a0f"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.cinemood.app",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Save your Taste DNA card to Photos",
+        "NSPhotoLibraryAddUsageDescription": "Save your Taste DNA card to Photos"
+      }
+    },
+    "android": {
+      "package": "com.cinemood.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0a0a0f"
+      },
+      "edgeToEdgeEnabled": true,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [{ "scheme": "cinemood" }],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-image",
+        {
+          "photosPermission": "Allow CineMood to save your Taste DNA card."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

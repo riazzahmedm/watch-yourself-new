@@ -1,0 +1,41 @@
+{
+  "name": "mobile",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "@gorhom/bottom-sheet": "^5.2.9",
+    "@shopify/flash-list": "^2.3.1",
+    "@supabase/supabase-js": "^2.103.3",
+    "@tanstack/react-query": "^5.99.0",
+    "expo": "~54.0.33",
+    "expo-haptics": "^55.0.14",
+    "expo-image": "^55.0.8",
+    "expo-linking": "^7.0.5",
+    "expo-media-library": "^55.0.14",
+    "expo-router": "~4.0.0",
+    "expo-secure-store": "^55.0.13",
+    "expo-sharing": "^55.0.18",
+    "expo-status-bar": "~3.0.9",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-gesture-handler": "^2.31.1",
+    "react-native-mmkv": "^4.3.1",
+    "react-native-reanimated": "^4.3.0",
+    "react-native-svg": "^15.15.4",
+    "react-native-view-shot": "^4.0.3",
+    "victory-native": "^41.20.2",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@types/react": "~19.1.0",
+    "@types/react-native": "^0.72.8",
+    "typescript": "~5.9.2"
+  },
+  "private": true
+}
