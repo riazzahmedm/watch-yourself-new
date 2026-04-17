@@ -39,13 +39,7 @@
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store",
-      [
-        "expo-image",
-        {
-          "photosPermission": "Allow Watch Yourself to save your Taste DNA card."
-        }
-      ]
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true

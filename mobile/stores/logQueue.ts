@@ -12,10 +12,10 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { MMKV } from "react-native-mmkv";
 import { supabase } from "@/lib/supabase";
+import { createKVStorage } from "@/lib/kvStorage";
 
-const storage = new MMKV({ id: "log-queue" });
+const storage = createKVStorage("log-queue");
 
 // Zustand persist storage adapter backed by MMKV
 const mmkvStorage = {

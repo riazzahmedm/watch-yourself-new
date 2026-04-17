@@ -1,9 +1,9 @@
 import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { callEdgeFunction } from "@/lib/supabase";
-import { MMKV } from "react-native-mmkv";
+import { createKVStorage } from "@/lib/kvStorage";
 
-const searchStorage = new MMKV({ id: "search-history" });
+const searchStorage = createKVStorage("search-history");
 const HISTORY_KEY = "recent_searches";
 const MAX_HISTORY = 8;
 
