@@ -15,6 +15,7 @@ import * as Linking from "expo-linking";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
+import { Toaster } from "sonner-native";
 
 import { supabase } from "@/lib/supabase";
 import { initAuthListener, useAuthStore } from "@/stores/auth";
@@ -37,6 +38,15 @@ export default function RootLayout() {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <StatusBar style="light" />
         <AuthGate />
+        <Toaster
+          theme="dark"
+          richColors
+          position="top-center"
+          offset={56}
+          toastOptions={{
+            style: { borderRadius: 14 },
+          }}
+        />
       </GestureHandlerRootView>
     </QueryClientProvider>
   );
@@ -104,18 +114,18 @@ function AuthGate() {
     return () => sub.remove();
   }, [session, flush]);
 
-  // 4. Route guard (runs after session is resolved)
+  // 4. Route guard (runs once isLoading is false)
   useEffect(() => {
     if (isLoading) return;
 
-    const inAuthGroup = segments[0] === "auth";
-    const inOnboarding = segments[0] === "onboarding";
+    const inAuthGroup   = segments[0] === "auth";
+    const inOnboarding  = segments[0] === "onboarding";
+    const inTabs        = segments[0] === "(tabs)";
 
     if (!session && !inAuthGroup) {
-      // Not signed in → send to auth
       router.replace("/auth");
-    } else if (session && (inAuthGroup || inOnboarding)) {
-      // Signed in → send to main tabs
+    } else if (session && !inTabs) {
+      // Covers: auth screen, onboarding, root index (/), anything else
       router.replace("/(tabs)/discover");
     }
   }, [session, isLoading, segments, router]);

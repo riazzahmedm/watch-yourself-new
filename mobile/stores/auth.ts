@@ -1,7 +1,5 @@
 // ============================================================
 // Auth store — Zustand
-// Tracks session, user, loading state.
-// Subscribes to Supabase auth state changes once at app start.
 // ============================================================
 
 import { create } from "zustand";
@@ -32,24 +30,53 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   signOut: async () => {
     await supabase.auth.signOut();
-    set({ session: null, user: null, isOnboarded: false });
+    set({ session: null, user: null, isLoading: false, isOnboarded: false });
   },
 }));
 
-// ---- Bootstrap: call once in the root layout ----------------
+// ---- Bootstrap — call once from the root layout -------------
+//
+// Flow:
+//  1. Register onAuthStateChange listener first so no event is missed.
+//  2. Call getSession() to hydrate immediately (handles the case where
+//     INITIAL_SESSION already fired before the listener was attached).
+//  3. Catch any getSession error (e.g. failed token refresh on bad network)
+//     so isLoading is always resolved.
+//  4. 5-second hard timeout as the ultimate fallback — if neither
+//     getSession nor the listener resolves, we stop the spinner and
+//     treat the user as logged out.
 
 export function initAuthListener() {
-  // Restore existing session on app start
-  supabase.auth.getSession().then(({ data: { session } }) => {
-    useAuthStore.getState().setSession(session);
-  });
-
-  // Listen to future changes (sign in, sign out, token refresh)
+  // 1. Listener (catches all future events including INITIAL_SESSION)
   const { data: { subscription } } = supabase.auth.onAuthStateChange(
     (_event, session) => {
       useAuthStore.getState().setSession(session);
     }
   );
 
-  return () => subscription.unsubscribe();
+  // 2. Explicit session fetch — resolves isLoading even if the
+  //    listener fires INITIAL_SESSION before we subscribed
+  supabase.auth
+    .getSession()
+    .then(({ data: { session } }) => {
+      useAuthStore.getState().setSession(session);
+    })
+    .catch(() => {
+      // Token refresh failed (network error, revoked token, etc.)
+      // Treat as signed out so the user isn't stuck on a spinner
+      useAuthStore.getState().setSession(null);
+    });
+
+  // 3. Hard timeout — absolute safety net
+  const timeout = setTimeout(() => {
+    if (useAuthStore.getState().isLoading) {
+      console.warn("[auth] Session resolution timed out — signing out");
+      useAuthStore.getState().setSession(null);
+    }
+  }, 5000);
+
+  return () => {
+    subscription.unsubscribe();
+    clearTimeout(timeout);
+  };
 }

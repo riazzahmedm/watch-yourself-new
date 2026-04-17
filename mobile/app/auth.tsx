@@ -8,21 +8,20 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Dimensions,
 } from "react-native";
 import { useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
+import { toast } from "sonner-native";
 import { supabase } from "@/lib/supabase";
 import { Colors, Gradients } from "@/constants/colors";
 
-const { width } = Dimensions.get("window");
-
 type Mode = "signin" | "signup";
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function AuthScreen() {
   const [mode, setMode]         = useState<Mode>("signin");
@@ -32,10 +31,20 @@ export default function AuthScreen() {
 
   const handleSubmit = async () => {
     const trimmedEmail = email.trim().toLowerCase();
+
     if (!trimmedEmail || !password) {
-      Alert.alert("Missing fields", "Please enter your email and password.");
+      toast.error("Please enter your email and password.");
       return;
     }
+    if (!EMAIL_RE.test(trimmedEmail)) {
+      toast.error("Please enter a valid email address.");
+      return;
+    }
+    if (password.length < 6) {
+      toast.error("Password must be at least 6 characters.");
+      return;
+    }
+
     setLoading(true);
     try {
       if (mode === "signin") {
@@ -44,26 +53,29 @@ export default function AuthScreen() {
           password,
         });
         if (error) throw error;
+        // Route guard in _layout.tsx handles the redirect
       } else {
         const { error } = await supabase.auth.signUp({
           email: trimmedEmail,
           password,
         });
         if (error) throw error;
-        Alert.alert(
-          "Check your email",
-          "We sent you a confirmation link. Tap it then sign in."
-        );
+        toast.success("Account created! Check your email to confirm.");
         setMode("signin");
       }
     } catch (err: unknown) {
-      Alert.alert(
-        mode === "signin" ? "Sign in failed" : "Sign up failed",
-        err instanceof Error ? err.message : "Something went wrong"
-      );
+      const message = err instanceof Error ? err.message : "Something went wrong";
+      toast.error(message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const toggleMode = () => {
+    setMode((m) => (m === "signin" ? "signup" : "signin"));
+    // Clear fields when switching modes
+    setEmail("");
+    setPassword("");
   };
 
   return (
@@ -139,7 +151,7 @@ export default function AuthScreen() {
               />
               <TextInput
                 style={styles.input}
-                placeholder="Password"
+                placeholder="Password  (min. 6 characters)"
                 placeholderTextColor={Colors.textMuted}
                 value={password}
                 onChangeText={setPassword}
@@ -172,10 +184,7 @@ export default function AuthScreen() {
               </LinearGradient>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={() => setMode(mode === "signin" ? "signup" : "signin")}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity onPress={toggleMode} activeOpacity={0.7}>
               <Text style={styles.toggle}>
                 {mode === "signin"
                   ? "No account? Sign up"
@@ -263,20 +272,20 @@ const styles = StyleSheet.create({
 
   // Mood pills
   pillRow: {
-    flexDirection: "row",
-    gap:           8,
-    flexWrap:      "wrap",
+    flexDirection:  "row",
+    gap:            8,
+    flexWrap:       "wrap",
     justifyContent: "center",
   },
   pill: {
-    flexDirection:   "row",
-    alignItems:      "center",
-    gap:             6,
-    borderWidth:     1,
-    borderRadius:    20,
+    flexDirection:     "row",
+    alignItems:        "center",
+    gap:               6,
+    borderWidth:       1,
+    borderRadius:      20,
     paddingHorizontal: 12,
     paddingVertical:   7,
-    backgroundColor: Colors.glass,
+    backgroundColor:   Colors.glass,
   },
   pillDot: {
     width:        6,
@@ -308,14 +317,14 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   input: {
-    backgroundColor:  Colors.surface,
-    borderWidth:      1,
-    borderColor:      Colors.border,
-    borderRadius:     14,
+    backgroundColor:   Colors.surface,
+    borderWidth:       1,
+    borderColor:       Colors.border,
+    borderRadius:      14,
     paddingHorizontal: 16,
-    paddingVertical:  15,
-    fontSize:         16,
-    color:            Colors.text,
+    paddingVertical:   15,
+    fontSize:          16,
+    color:             Colors.text,
   },
   btnWrap: {
     borderRadius: 14,
@@ -328,9 +337,9 @@ const styles = StyleSheet.create({
     borderRadius:    14,
   },
   btnText: {
-    color:      "#fff",
-    fontSize:   16,
-    fontWeight: "700",
+    color:         "#fff",
+    fontSize:      16,
+    fontWeight:    "700",
     letterSpacing: 0.3,
   },
   toggle: {
@@ -338,7 +347,6 @@ const styles = StyleSheet.create({
     fontSize:  14,
     textAlign: "center",
   },
-
   legal: {
     fontSize:  12,
     color:     Colors.textMuted,
