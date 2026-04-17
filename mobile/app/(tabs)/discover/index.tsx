@@ -1,7 +1,5 @@
 // ============================================================
-// Discover Tab — app/(tabs)/discover/index.tsx
-// Mood chip row → recommendation FlashList
-// Pull-to-refresh → new set of recommendations
+// Discover Tab — cinematic header + mood chip row + film grid
 // ============================================================
 
 import { useState, useCallback } from "react";
@@ -11,11 +9,12 @@ import {
   ScrollView,
   StyleSheet,
   RefreshControl,
-  TouchableOpacity,
+  Dimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { FlashList } from "@shopify/flash-list";
 import { useQueryClient } from "@tanstack/react-query";
+import { LinearGradient } from "expo-linear-gradient";
 
 import { Colors } from "@/constants/colors";
 import { MOODS } from "@/constants/moods";
@@ -23,10 +22,12 @@ import { MoodChip } from "@/components/MoodChip";
 import { MediaCard } from "@/components/MediaCard";
 import { useRecommendations } from "@/hooks/useRecommendations";
 
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
 export default function DiscoverScreen() {
-  const router       = useRouter();
-  const queryClient  = useQueryClient();
-  const [activeMood, setActiveMood] = useState<string>(MOODS[0].slug);
+  const router      = useRouter();
+  const queryClient = useQueryClient();
+  const [activeMood, setActiveMood] = useState(MOODS[0].slug);
 
   const { data, isLoading, isFetching } = useRecommendations(activeMood);
 
@@ -34,58 +35,43 @@ export default function DiscoverScreen() {
     queryClient.invalidateQueries({ queryKey: ["recommendations", activeMood] });
   }, [activeMood, queryClient]);
 
-  const handleMoodSelect = (slug: string) => {
-    setActiveMood(slug);
-  };
-
-  const handleCardPress = (mediaId: string, tmdbId: number) => {
-    router.push(`/media/${tmdbId}`);
-  };
-
-  const currentMood = MOODS.find((m) => m.slug === activeMood);
+  const currentMood = MOODS.find((m) => m.slug === activeMood)!;
 
   return (
     <View style={styles.container}>
-      {/* ---- Header ------------------------------------------ */}
+
+      {/* ── Header ───────────────────────────────────────────── */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>How are you feeling?</Text>
-        <Text style={styles.headerSub}>Pick a mood, we'll find the movie</Text>
+        <LinearGradient
+          colors={["#0e0b1e", Colors.background]}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={styles.headerContent}>
+          <Text style={styles.headerEyebrow}>Watch Yourself</Text>
+          <Text style={styles.headerTitle}>How are{"\n"}you feeling?</Text>
+        </View>
+
+        {/* Mood chip row */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipsRow}
+          style={styles.chipsScroll}
+        >
+          {MOODS.map((mood) => (
+            <MoodChip
+              key={mood.slug}
+              mood={mood}
+              selected={activeMood === mood.slug}
+              onPress={setActiveMood}
+            />
+          ))}
+        </ScrollView>
       </View>
 
-      {/* ---- Mood chips (horizontal scroll) ------------------ */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.chipsContainer}
-        style={styles.chipsScroll}
-      >
-        {MOODS.map((mood) => (
-          <MoodChip
-            key={mood.slug}
-            mood={mood}
-            selected={activeMood === mood.slug}
-            onPress={handleMoodSelect}
-          />
-        ))}
-      </ScrollView>
-
-      {/* ---- Section heading --------------------------------- */}
-      {currentMood && (
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>
-            {currentMood.emoji} {currentMood.label}
-          </Text>
-          {data?.personalized && (
-            <View style={styles.personalizedBadge}>
-              <Text style={styles.personalizedText}>✦ Personalised</Text>
-            </View>
-          )}
-        </View>
-      )}
-
-      {/* ---- Recommendation feed ----------------------------- */}
+      {/* ── Film grid ────────────────────────────────────────── */}
       {isLoading ? (
-        <LoadingSkeleton />
+        <SkeletonGrid />
       ) : (
         <FlashList
           data={data?.results ?? []}
@@ -97,8 +83,24 @@ export default function DiscoverScreen() {
             <RefreshControl
               refreshing={isFetching && !isLoading}
               onRefresh={onRefresh}
-              tintColor={Colors.accent}
+              tintColor={currentMood.color}
             />
+          }
+          ListHeaderComponent={
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionLeft}>
+                <Text style={styles.sectionEmoji}>{currentMood.emoji}</Text>
+                <Text style={styles.sectionTitle}>{currentMood.label}</Text>
+              </View>
+              {data?.personalized && (
+                <View style={[styles.personalizedBadge, { borderColor: currentMood.color + "60" }]}>
+                  <View style={[styles.personalizedDot, { backgroundColor: currentMood.color }]} />
+                  <Text style={[styles.personalizedText, { color: currentMood.color }]}>
+                    For you
+                  </Text>
+                </View>
+              )}
+            </View>
           }
           renderItem={({ item }) => (
             <View style={styles.cardWrapper}>
@@ -108,21 +110,20 @@ export default function DiscoverScreen() {
                 posterUrl={item.posterUrl}
                 releaseYear={item.releaseYear}
                 tmdbRating={item.tmdbRating}
-                cineMoodScore={item.cineMoodScore}
+                watchYourselfScore={item.cineMoodScore}
                 mediaType={item.mediaType}
                 moodScore={item.moodScore}
-                onPress={() => handleCardPress(item.id, item.tmdbId)}
-                onLongPress={() => {
-                  // TODO: quick-action sheet (Log, Watchlist, Similar)
-                }}
+                moodColor={currentMood.color}
+                onPress={() => router.push(`/media/${item.tmdbId}`)}
               />
             </View>
           )}
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Text style={styles.emptyText}>
-                No films found for this mood yet.{"\n"}
-                The catalog is still growing 🎬
+              <Text style={styles.emptyEmoji}>{currentMood.emoji}</Text>
+              <Text style={styles.emptyTitle}>Catalog growing</Text>
+              <Text style={styles.emptyBody}>
+                No films for this mood yet.{"\n"}Check back soon.
               </Text>
             </View>
           }
@@ -132,99 +133,154 @@ export default function DiscoverScreen() {
   );
 }
 
-function LoadingSkeleton() {
+function SkeletonGrid() {
   return (
     <View style={styles.skeletonGrid}>
       {Array.from({ length: 6 }).map((_, i) => (
-        <View key={i} style={styles.skeletonCard} />
+        <View
+          key={i}
+          style={[
+            styles.skeletonCard,
+            { opacity: 1 - i * 0.12 },
+          ]}
+        />
       ))}
     </View>
   );
 }
+
+const CARD_W = (SCREEN_WIDTH - 44) / 2;
 
 const styles = StyleSheet.create({
   container: {
     flex:            1,
     backgroundColor: Colors.background,
   },
+
+  // Header
   header: {
+    paddingTop:    56,
+    paddingBottom: 4,
+    overflow:      "hidden",
+  },
+  headerContent: {
     paddingHorizontal: 20,
-    paddingTop:        60,
     paddingBottom:     16,
   },
-  headerTitle: {
-    fontSize:   28,
-    fontWeight: "800",
-    color:      Colors.text,
-    letterSpacing: -0.5,
+  headerEyebrow: {
+    fontSize:      11,
+    fontWeight:    "700",
+    color:         Colors.accent,
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    marginBottom:  6,
   },
-  headerSub: {
-    fontSize:  15,
-    color:     Colors.textSecondary,
-    marginTop: 4,
+  headerTitle: {
+    fontSize:      32,
+    fontWeight:    "800",
+    color:         Colors.text,
+    letterSpacing: -0.8,
+    lineHeight:    38,
   },
   chipsScroll: {
     flexGrow: 0,
   },
-  chipsContainer: {
+  chipsRow: {
     paddingHorizontal: 20,
-    paddingVertical:   8,
+    paddingVertical:   12,
     gap:               8,
     flexDirection:     "row",
   },
+
+  // Section heading
   sectionHeader: {
     flexDirection:     "row",
     alignItems:        "center",
-    paddingHorizontal: 20,
-    paddingVertical:   12,
     justifyContent:    "space-between",
+    paddingHorizontal: 4,
+    paddingTop:        16,
+    paddingBottom:     12,
+  },
+  sectionLeft: {
+    flexDirection: "row",
+    alignItems:    "center",
+    gap:           8,
+  },
+  sectionEmoji: {
+    fontSize: 20,
   },
   sectionTitle: {
+    fontSize:      18,
+    fontWeight:    "700",
+    color:         Colors.text,
+    letterSpacing: -0.3,
+  },
+  personalizedBadge: {
+    flexDirection:     "row",
+    alignItems:        "center",
+    gap:               5,
+    borderWidth:       1,
+    borderRadius:      8,
+    paddingHorizontal: 9,
+    paddingVertical:   4,
+    backgroundColor:   Colors.glass,
+  },
+  personalizedDot: {
+    width:        5,
+    height:       5,
+    borderRadius: 2.5,
+  },
+  personalizedText: {
+    fontSize:   11,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
+
+  // Grid
+  listContent: {
+    paddingHorizontal: 16,
+    paddingBottom:     110,
+  },
+  cardWrapper: {
+    flex:              1,
+    paddingHorizontal: 4,
+  },
+
+  // Empty state
+  empty: {
+    alignItems: "center",
+    paddingTop: 80,
+    gap:        10,
+  },
+  emptyEmoji: {
+    fontSize: 40,
+  },
+  emptyTitle: {
     fontSize:   18,
     fontWeight: "700",
     color:      Colors.text,
   },
-  personalizedBadge: {
-    backgroundColor: Colors.accentDim,
-    borderRadius:    8,
-    paddingHorizontal: 10,
-    paddingVertical:   4,
-    borderWidth:     1,
-    borderColor:     Colors.accent,
+  emptyBody: {
+    color:     Colors.textSecondary,
+    textAlign: "center",
+    fontSize:  14,
+    lineHeight: 22,
   },
-  personalizedText: {
-    color:      Colors.accent,
-    fontSize:   11,
-    fontWeight: "600",
-  },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingBottom:     100,
-  },
-  cardWrapper: {
-    flex:           1,
-    paddingHorizontal: 4,
-  },
-  empty: {
-    alignItems:  "center",
-    paddingTop:  80,
-  },
-  emptyText: {
-    color:       Colors.textSecondary,
-    textAlign:   "center",
-    fontSize:    15,
-    lineHeight:  24,
-  },
+
+  // Skeleton
   skeletonGrid: {
     flexDirection:     "row",
     flexWrap:          "wrap",
     paddingHorizontal: 16,
-    gap:               8,
+    paddingTop:        12,
+    gap:               12,
   },
   skeletonCard: {
-    width:           "48%",
-    height:          250,
+    width:           CARD_W,
+    height:          CARD_W * 1.52,
     backgroundColor: Colors.surface,
-    borderRadius:    12,
+    borderRadius:    14,
+    borderWidth:     1,
+    borderColor:     Colors.border,
   },
 });

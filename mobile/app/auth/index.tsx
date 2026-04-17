@@ -1,5 +1,5 @@
 // ============================================================
-// Auth Screen — email + password (sign in & sign up)
+// Auth Screen — cinematic dark hero + glass form
 // ============================================================
 
 import {
@@ -13,18 +13,22 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Dimensions,
 } from "react-native";
 import { useState } from "react";
+import { LinearGradient } from "expo-linear-gradient";
 import { supabase } from "@/lib/supabase";
-import { Colors } from "@/constants/colors";
+import { Colors, Gradients } from "@/constants/colors";
+
+const { width } = Dimensions.get("window");
 
 type Mode = "signin" | "signup";
 
 export default function AuthScreen() {
-  const [mode, setMode]       = useState<Mode>("signin");
-  const [email, setEmail]     = useState("");
+  const [mode, setMode]         = useState<Mode>("signin");
+  const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading]   = useState(false);
 
   const handleSubmit = async () => {
     const trimmedEmail = email.trim().toLowerCase();
@@ -32,7 +36,6 @@ export default function AuthScreen() {
       Alert.alert("Missing fields", "Please enter your email and password.");
       return;
     }
-
     setLoading(true);
     try {
       if (mode === "signin") {
@@ -41,7 +44,6 @@ export default function AuthScreen() {
           password,
         });
         if (error) throw error;
-        // Session set → auth listener in _layout.tsx routes to /(tabs)/discover
       } else {
         const { error } = await supabase.auth.signUp({
           email: trimmedEmail,
@@ -50,7 +52,7 @@ export default function AuthScreen() {
         if (error) throw error;
         Alert.alert(
           "Check your email",
-          "We sent you a confirmation link. Tap it to activate your account, then sign in."
+          "We sent you a confirmation link. Tap it then sign in."
         );
         setMode("signin");
       }
@@ -65,179 +67,281 @@ export default function AuthScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
-      <ScrollView
-        contentContainerStyle={styles.container}
-        keyboardShouldPersistTaps="handled"
+    <View style={styles.root}>
+      {/* ── Background gradient ───────────────────────────── */}
+      <LinearGradient
+        colors={["#0e0b1e", "#080810", "#080810"]}
+        style={StyleSheet.absoluteFill}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+      />
+
+      {/* ── Ambient glow orbs ─────────────────────────────── */}
+      <View style={[styles.orb, styles.orbTopLeft]} />
+      <View style={[styles.orb, styles.orbBottomRight]} />
+
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        {/* Hero */}
-        <View style={styles.hero}>
-          <Text style={styles.emoji}>🎬</Text>
-          <Text style={styles.title}>Watch Yourself</Text>
-          <Text style={styles.subtitle}>
-            Understand yourself{"\n"}through movies
-          </Text>
-        </View>
-
-        {/* Mood preview pills */}
-        <View style={styles.moodRow}>
-          {["😔 Feeling Low", "🤯 Mind Blown", "😌 Comfort Watch"].map((m) => (
-            <View key={m} style={styles.moodPill}>
-              <Text style={styles.moodPillText}>{m}</Text>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* ── Hero ──────────────────────────────────────── */}
+          <View style={styles.hero}>
+            <View style={styles.logoWrap}>
+              <Text style={styles.logoEmoji}>🎬</Text>
             </View>
-          ))}
-        </View>
-
-        {/* Form */}
-        <View style={styles.form}>
-          <TextInput
-            style={styles.input}
-            placeholder="Email"
-            placeholderTextColor={Colors.textMuted}
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="email-address"
-            returnKeyType="next"
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Password"
-            placeholderTextColor={Colors.textMuted}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            returnKeyType="done"
-            onSubmitEditing={handleSubmit}
-          />
-
-          <TouchableOpacity
-            style={[styles.btn, styles.primaryBtn]}
-            onPress={handleSubmit}
-            activeOpacity={0.85}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color={Colors.background} size="small" />
-            ) : (
-              <Text style={styles.primaryBtnText}>
-                {mode === "signin" ? "Sign In" : "Create Account"}
-              </Text>
-            )}
-          </TouchableOpacity>
-
-          {/* Mode toggle */}
-          <TouchableOpacity
-            onPress={() => setMode(mode === "signin" ? "signup" : "signin")}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.toggleText}>
-              {mode === "signin"
-                ? "Don't have an account? Sign up"
-                : "Already have an account? Sign in"}
+            <Text style={styles.title}>Watch Yourself</Text>
+            <Text style={styles.subtitle}>
+              Understand yourself{"\n"}through what you watch
             </Text>
-          </TouchableOpacity>
-        </View>
+          </View>
 
-        <Text style={styles.legal}>
-          By continuing you agree to our Terms of Service{"\n"}and Privacy Policy
-        </Text>
-      </ScrollView>
-    </KeyboardAvoidingView>
+          {/* ── Mood pills ────────────────────────────────── */}
+          <View style={styles.pillRow}>
+            {[
+              { label: "Feeling Low", color: "#6ea8fe" },
+              { label: "Mind Blown",  color: "#c084fc" },
+              { label: "Comfort",     color: "#86efac" },
+            ].map((p) => (
+              <View
+                key={p.label}
+                style={[styles.pill, { borderColor: p.color + "50" }]}
+              >
+                <View style={[styles.pillDot, { backgroundColor: p.color }]} />
+                <Text style={[styles.pillText, { color: p.color }]}>
+                  {p.label}
+                </Text>
+              </View>
+            ))}
+          </View>
+
+          {/* ── Glass form card ───────────────────────────── */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>
+              {mode === "signin" ? "Welcome back" : "Create account"}
+            </Text>
+
+            <View style={styles.fields}>
+              <TextInput
+                style={styles.input}
+                placeholder="Email"
+                placeholderTextColor={Colors.textMuted}
+                value={email}
+                onChangeText={setEmail}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
+                returnKeyType="next"
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Password"
+                placeholderTextColor={Colors.textMuted}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                returnKeyType="done"
+                onSubmitEditing={handleSubmit}
+              />
+            </View>
+
+            {/* Gradient submit button */}
+            <TouchableOpacity
+              onPress={handleSubmit}
+              activeOpacity={0.85}
+              disabled={loading}
+              style={styles.btnWrap}
+            >
+              <LinearGradient
+                colors={Gradients.accent}
+                style={styles.btn}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.btnText}>
+                    {mode === "signin" ? "Sign In" : "Create Account"}
+                  </Text>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setMode(mode === "signin" ? "signup" : "signin")}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.toggle}>
+                {mode === "signin"
+                  ? "No account? Sign up"
+                  : "Have an account? Sign in"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.legal}>
+            By continuing you agree to our Terms & Privacy Policy
+          </Text>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
+  root: {
+    flex:            1,
     backgroundColor: Colors.background,
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 24,
-    paddingTop: 100,
-    paddingBottom: 48,
   },
+  scroll: {
+    flexGrow:          1,
+    alignItems:        "center",
+    paddingHorizontal: 24,
+    paddingTop:        80,
+    paddingBottom:     48,
+    gap:               32,
+  },
+
+  // Ambient orbs
+  orb: {
+    position:     "absolute",
+    borderRadius: 999,
+    opacity:      0.15,
+  },
+  orbTopLeft: {
+    width:           280,
+    height:          280,
+    backgroundColor: "#7c6af5",
+    top:             -80,
+    left:            -80,
+  },
+  orbBottomRight: {
+    width:           220,
+    height:          220,
+    backgroundColor: "#a78bfa",
+    bottom:          80,
+    right:           -80,
+  },
+
+  // Hero
   hero: {
     alignItems: "center",
-    gap: 12,
+    gap:        12,
   },
-  emoji: {
-    fontSize: 64,
+  logoWrap: {
+    width:           72,
+    height:          72,
+    borderRadius:    22,
+    backgroundColor: Colors.glass,
+    borderWidth:     1,
+    borderColor:     Colors.glassBorder,
+    alignItems:      "center",
+    justifyContent:  "center",
+    marginBottom:    4,
+  },
+  logoEmoji: {
+    fontSize: 36,
   },
   title: {
-    fontSize: 42,
-    fontWeight: "800",
-    color: Colors.text,
+    fontSize:      38,
+    fontWeight:    "800",
+    color:         Colors.text,
     letterSpacing: -1,
+    textAlign:     "center",
   },
   subtitle: {
-    fontSize: 18,
-    color: Colors.textSecondary,
-    textAlign: "center",
-    lineHeight: 26,
+    fontSize:   16,
+    color:      Colors.textSecondary,
+    textAlign:  "center",
+    lineHeight: 24,
   },
-  moodRow: {
+
+  // Mood pills
+  pillRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
+    gap:           8,
+    flexWrap:      "wrap",
     justifyContent: "center",
   },
-  moodPill: {
-    backgroundColor: Colors.surface,
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
+  pill: {
+    flexDirection:   "row",
+    alignItems:      "center",
+    gap:             6,
+    borderWidth:     1,
+    borderRadius:    20,
+    paddingHorizontal: 12,
+    paddingVertical:   7,
+    backgroundColor: Colors.glass,
   },
-  moodPillText: {
-    color: Colors.textSecondary,
-    fontSize: 13,
-    fontWeight: "500",
+  pillDot: {
+    width:        6,
+    height:       6,
+    borderRadius: 3,
   },
-  form: {
-    width: "100%",
-    gap: 12,
+  pillText: {
+    fontSize:   12,
+    fontWeight: "600",
+  },
+
+  // Form card
+  card: {
+    width:           "100%",
+    backgroundColor: Colors.glass,
+    borderWidth:     1,
+    borderColor:     Colors.glassBorder,
+    borderRadius:    24,
+    padding:         24,
+    gap:             16,
+  },
+  cardTitle: {
+    fontSize:      20,
+    fontWeight:    "700",
+    color:         Colors.text,
+    letterSpacing: -0.3,
+  },
+  fields: {
+    gap: 10,
   },
   input: {
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 14,
+    backgroundColor:  Colors.surface,
+    borderWidth:      1,
+    borderColor:      Colors.border,
+    borderRadius:     14,
     paddingHorizontal: 16,
-    paddingVertical: 16,
-    fontSize: 16,
-    color: Colors.text,
+    paddingVertical:  15,
+    fontSize:         16,
+    color:            Colors.text,
+  },
+  btnWrap: {
+    borderRadius: 14,
+    overflow:     "hidden",
   },
   btn: {
-    borderRadius: 14,
     paddingVertical: 16,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems:      "center",
+    justifyContent:  "center",
+    borderRadius:    14,
   },
-  primaryBtn: {
-    backgroundColor: Colors.accent,
-    marginTop: 4,
-  },
-  primaryBtnText: {
-    color: "#fff",
-    fontSize: 16,
+  btnText: {
+    color:      "#fff",
+    fontSize:   16,
     fontWeight: "700",
+    letterSpacing: 0.3,
   },
-  toggleText: {
-    color: Colors.textSecondary,
-    fontSize: 14,
+  toggle: {
+    color:     Colors.textSecondary,
+    fontSize:  14,
     textAlign: "center",
-    marginTop: 4,
   },
+
   legal: {
-    fontSize: 12,
-    color: Colors.textMuted,
+    fontSize:  12,
+    color:     Colors.textMuted,
     textAlign: "center",
-    lineHeight: 18,
   },
 });

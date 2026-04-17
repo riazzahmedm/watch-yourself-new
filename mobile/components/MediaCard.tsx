@@ -1,32 +1,42 @@
 // ============================================================
-// MediaCard — reusable movie/series poster card
-// Used in: Discover feed, Search results, Library list
+// MediaCard — cinematic full-bleed poster card
+// Info overlaid at bottom with gradient scrim
 // ============================================================
 
-import { View, Text, TouchableOpacity, StyleSheet, Dimensions } from "react-native";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Dimensions,
+} from "react-native";
 import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import { Colors } from "@/constants/colors";
 
-const BLURHASH = "LGF5?xYk^6#M@-5c,1J5@[or[Q6."; // generic cinema blurhash
+const BLURHASH = "LGF5?xYk^6#M@-5c,1J5@[or[Q6.";
 
 interface Props {
-  id:          string;
-  title:       string;
-  posterUrl:   string | null;
-  releaseYear: number | null;
-  tmdbRating?: number;
-  cineMoodScore?: number;
-  mediaType:   "movie" | "series";
-  moodScore?:  number;
-  onPress:     () => void;
-  onLongPress?: () => void;
-  size?:       "small" | "medium" | "large";
+  id:             string;
+  title:          string;
+  posterUrl:      string | null;
+  releaseYear:    number | null;
+  tmdbRating?:    number;
+  watchYourselfScore?: number;
+  mediaType:      "movie" | "series";
+  moodScore?:     number;
+  moodColor?:     string;
+  onPress:        () => void;
+  onLongPress?:   () => void;
+  size?:          "small" | "medium" | "large";
 }
 
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
 const CARD_WIDTHS = {
-  small:  (Dimensions.get("window").width - 48) / 3,
-  medium: (Dimensions.get("window").width - 40) / 2,
-  large:  Dimensions.get("window").width - 32,
+  small:  (SCREEN_WIDTH - 52) / 3,
+  medium: (SCREEN_WIDTH - 44) / 2,
+  large:  SCREEN_WIDTH - 32,
 };
 
 export function MediaCard({
@@ -34,66 +44,90 @@ export function MediaCard({
   posterUrl,
   releaseYear,
   tmdbRating,
-  cineMoodScore,
+  watchYourselfScore,
   mediaType,
   moodScore,
+  moodColor,
   onPress,
   onLongPress,
   size = "medium",
 }: Props) {
   const cardWidth  = CARD_WIDTHS[size];
-  const cardHeight = cardWidth * 1.5;
+  const cardHeight = cardWidth * 1.52;
 
   return (
     <TouchableOpacity
-      style={[styles.card, { width: cardWidth }]}
+      style={[styles.card, { width: cardWidth, height: cardHeight }]}
       onPress={onPress}
       onLongPress={onLongPress}
-      activeOpacity={0.85}
+      activeOpacity={0.9}
     >
-      {/* Poster */}
-      <View style={[styles.posterContainer, { height: cardHeight }]}>
-        <Image
-          source={{ uri: posterUrl ?? undefined }}
-          style={styles.poster}
-          placeholder={{ blurhash: BLURHASH }}
-          contentFit="cover"
-          transition={200}
-        />
+      {/* ── Poster ─────────────────────────────────────────── */}
+      <Image
+        source={{ uri: posterUrl ?? undefined }}
+        style={StyleSheet.absoluteFill}
+        placeholder={{ blurhash: BLURHASH }}
+        contentFit="cover"
+        transition={300}
+      />
 
-        {/* Type badge */}
+      {/* ── Gradient scrim ─────────────────────────────────── */}
+      <LinearGradient
+        colors={["transparent", "rgba(8,8,16,0.5)", "rgba(8,8,16,0.97)"]}
+        locations={[0.35, 0.65, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+
+      {/* ── Top badges ─────────────────────────────────────── */}
+      <View style={styles.topRow}>
         {mediaType === "series" && (
-          <View style={styles.typeBadge}>
-            <Text style={styles.typeBadgeText}>TV</Text>
+          <View style={styles.tvBadge}>
+            <Text style={styles.tvBadgeText}>TV</Text>
           </View>
         )}
-
-        {/* Watch Yourself score badge (only for recommendations) */}
-        {cineMoodScore != null && (
-          <View style={styles.scoreBadge}>
-            <Text style={styles.scoreBadgeText}>
-              {Math.round(cineMoodScore * 100)}
+        {watchYourselfScore != null && (
+          <View style={[styles.scoreBadge, { marginLeft: "auto" }]}>
+            <Text style={styles.scoreText}>
+              {Math.round(watchYourselfScore * 100)}
             </Text>
           </View>
         )}
       </View>
 
-      {/* Info */}
+      {/* ── Bottom info ────────────────────────────────────── */}
       <View style={styles.info}>
-        <Text style={styles.title} numberOfLines={2}>{title}</Text>
+        {/* Mood match bar */}
+        {moodScore != null && moodScore > 0.4 && (
+          <View style={styles.moodBar}>
+            <View
+              style={[
+                styles.moodFill,
+                {
+                  width:           `${Math.round(moodScore * 100)}%`,
+                  backgroundColor: moodColor ?? Colors.accent,
+                },
+              ]}
+            />
+          </View>
+        )}
+
+        <Text style={styles.title} numberOfLines={2}>
+          {title}
+        </Text>
+
         <View style={styles.meta}>
           {releaseYear && (
             <Text style={styles.metaText}>{releaseYear}</Text>
           )}
-          {tmdbRating != null && (
-            <Text style={styles.metaText}>⭐ {tmdbRating.toFixed(1)}</Text>
+          {tmdbRating != null && tmdbRating > 0 && (
+            <>
+              <View style={styles.metaDot} />
+              <Text style={styles.metaText}>
+                ★ {tmdbRating.toFixed(1)}
+              </Text>
+            </>
           )}
         </View>
-        {moodScore != null && moodScore > 0.5 && (
-          <View style={styles.moodBar}>
-            <View style={[styles.moodFill, { width: `${moodScore * 100}%` }]} />
-          </View>
-        )}
       </View>
     </TouchableOpacity>
   );
@@ -101,78 +135,85 @@ export function MediaCard({
 
 const styles = StyleSheet.create({
   card: {
+    borderRadius:  14,
+    overflow:      "hidden",
+    marginBottom:  12,
     backgroundColor: Colors.surface,
-    borderRadius:    12,
-    overflow:        "hidden",
-    marginBottom:    16,
   },
-  posterContainer: {
-    width:    "100%",
-    position: "relative",
-  },
-  poster: {
-    width:        "100%",
-    height:       "100%",
-    borderRadius: 8,
-  },
-  typeBadge: {
+  topRow: {
+    flexDirection:   "row",
+    alignItems:      "flex-start",
+    padding:         10,
     position:        "absolute",
-    top:             8,
-    right:           8,
+    top:             0,
+    left:            0,
+    right:           0,
+  },
+  tvBadge: {
     backgroundColor: Colors.accent,
-    borderRadius:    4,
+    borderRadius:    5,
     paddingHorizontal: 6,
     paddingVertical:   2,
   },
-  typeBadgeText: {
+  tvBadgeText: {
     color:      "#fff",
-    fontSize:   10,
-    fontWeight: "700",
+    fontSize:   9,
+    fontWeight: "800",
+    letterSpacing: 0.5,
   },
   scoreBadge: {
-    position:        "absolute",
-    bottom:          8,
-    left:            8,
-    backgroundColor: "#00000090",
+    backgroundColor: "rgba(0,0,0,0.6)",
     borderRadius:    6,
-    paddingHorizontal: 6,
+    paddingHorizontal: 7,
     paddingVertical:   3,
     borderWidth:     1,
-    borderColor:     Colors.accent,
+    borderColor:     Colors.accent + "80",
   },
-  scoreBadgeText: {
+  scoreText: {
     color:      Colors.accent,
-    fontSize:   11,
-    fontWeight: "700",
+    fontSize:   10,
+    fontWeight: "800",
   },
   info: {
-    padding: 8,
-    gap:     4,
+    position: "absolute",
+    bottom:   0,
+    left:     0,
+    right:    0,
+    padding:  12,
+    gap:      5,
+  },
+  moodBar: {
+    height:          2,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderRadius:    1,
+    overflow:        "hidden",
+    marginBottom:    2,
+  },
+  moodFill: {
+    height:       "100%",
+    borderRadius: 1,
   },
   title: {
-    color:      Colors.text,
-    fontSize:   13,
-    fontWeight: "600",
-    lineHeight: 18,
+    color:         Colors.text,
+    fontSize:      13,
+    fontWeight:    "700",
+    lineHeight:    18,
+    letterSpacing: -0.2,
   },
   meta: {
     flexDirection: "row",
-    gap:           8,
+    alignItems:    "center",
+    gap:           5,
   },
   metaText: {
     color:    Colors.textSecondary,
     fontSize: 11,
+    fontWeight: "500",
   },
-  moodBar: {
+  metaDot: {
+    width:           3,
     height:          3,
-    backgroundColor: Colors.border,
-    borderRadius:    2,
-    overflow:        "hidden",
-    marginTop:       2,
-  },
-  moodFill: {
-    height:          "100%",
-    backgroundColor: Colors.accent,
-    borderRadius:    2,
+    borderRadius:    1.5,
+    backgroundColor: Colors.textMuted,
   },
 });

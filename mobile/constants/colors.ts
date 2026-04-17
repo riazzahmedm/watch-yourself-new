@@ -1,30 +1,31 @@
 // ============================================================
-// Watch Yourself Design System — Colors
+// Watch Yourself Design System — Colors & Tokens
 // Dark-first. All screens use this palette.
 // ============================================================
 
 export const Colors = {
   // Backgrounds
-  background:      "#0a0a0f",   // near-black, deep cinema
-  surface:         "#141420",   // cards, sheets
-  surfaceElevated: "#1e1e2e",   // modals, drawers
+  background:      "#080810",   // near-black, deep cinema
+  surface:         "#111118",   // cards, sheets
+  surfaceElevated: "#1a1a28",   // modals, drawers
 
   // Text
-  text:            "#f4f4f8",   // primary
-  textSecondary:   "#9898b0",   // captions, subtitles
-  textMuted:       "#5a5a72",   // placeholders, legal
+  text:            "#f0f0f8",
+  textSecondary:   "#8888a8",
+  textMuted:       "#44445a",
 
   // Accent
-  accent:          "#7c6af5",   // purple — mood / DNA brand colour
-  accentDim:       "#7c6af520", // accent at 12% opacity (chips background)
+  accent:          "#7c6af5",
+  accentLight:     "#a78bfa",
+  accentDim:       "#7c6af518",
 
-  // Mood colours (each mood has its own tint)
+  // Mood colours
   moods: {
-    feeling_low:    "#6ea8fe",   // soft blue
-    need_intensity: "#f87171",   // red
-    comfort_watch:  "#86efac",   // mint green
-    mind_blown:     "#c084fc",   // violet
-    existential:    "#38bdf8",   // sky blue
+    feeling_low:    "#6ea8fe",
+    need_intensity: "#f87171",
+    comfort_watch:  "#86efac",
+    mind_blown:     "#c084fc",
+    existential:    "#38bdf8",
   },
 
   // Status
@@ -33,13 +34,29 @@ export const Colors = {
   error:    "#f87171",
 
   // UI chrome
-  border:    "#2a2a3a",
-  tabBar:    "#10101c",
-  separator: "#1e1e2e",
+  border:    "#ffffff12",
+  tabBar:    "#08080f",
+  separator: "#ffffff0a",
 
   // Star rating
   starActive:   "#facc15",
-  starInactive: "#2a2a3a",
+  starInactive: "#ffffff18",
+
+  // Glass morphism
+  glass:          "rgba(255,255,255,0.05)",
+  glassBorder:    "rgba(255,255,255,0.10)",
+  glassStrong:    "rgba(255,255,255,0.09)",
+} as const;
+
+// Gradient presets (for use with expo-linear-gradient)
+export const Gradients = {
+  accent:         ["#7c6af5", "#a78bfa"] as const,
+  accentDeep:     ["#5b4dd4", "#7c6af5"] as const,
+  hero:           ["#080810", "#0e0b1e"] as const,
+  posterOverlay:  ["transparent", "rgba(8,8,16,0.7)", "#080810"] as const,
+  cardOverlay:    ["transparent", "rgba(8,8,16,0.95)"] as const,
+  fadeUp:         ["transparent", "#080810"] as const,
+  darkScrim:      ["rgba(0,0,0,0)", "rgba(0,0,0,0.85)"] as const,
 } as const;
 
 export type MoodSlug = keyof typeof Colors.moods;

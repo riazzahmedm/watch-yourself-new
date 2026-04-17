@@ -1,18 +1,17 @@
 // ============================================================
-// MoodChip — selectable mood pill
-// Used in: Discover header row, Log sheet
+// MoodChip — selectable mood pill with glow when selected
 // ============================================================
 
-import { TouchableOpacity, Text, StyleSheet } from "react-native";
+import { TouchableOpacity, Text, StyleSheet, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import { Colors } from "@/constants/colors";
 import type { Mood } from "@/constants/moods";
 
 interface Props {
-  mood:      Mood;
-  selected:  boolean;
-  onPress:   (slug: string) => void;
-  size?:     "small" | "large";
+  mood:     Mood;
+  selected: boolean;
+  onPress:  (slug: string) => void;
+  size?:    "small" | "large";
 }
 
 export function MoodChip({ mood, selected, onPress, size = "small" }: Props) {
@@ -21,46 +20,63 @@ export function MoodChip({ mood, selected, onPress, size = "small" }: Props) {
     onPress(mood.slug);
   };
 
+  const isLarge = size === "large";
+
   return (
     <TouchableOpacity
+      onPress={handlePress}
+      activeOpacity={0.75}
       style={[
         styles.chip,
-        size === "large" && styles.chipLarge,
-        selected && { backgroundColor: mood.color + "22", borderColor: mood.color },
-        !selected && styles.chipDefault,
+        isLarge && styles.chipLarge,
+        selected
+          ? {
+              backgroundColor: mood.color + "20",
+              borderColor:     mood.color + "90",
+              shadowColor:     mood.color,
+              shadowOpacity:   0.35,
+              shadowRadius:    10,
+              shadowOffset:    { width: 0, height: 0 },
+              elevation:       6,
+            }
+          : styles.chipDefault,
       ]}
-      onPress={handlePress}
-      activeOpacity={0.8}
     >
-      <Text style={[styles.emoji, size === "large" && styles.emojiLarge]}>
+      <Text style={[styles.emoji, isLarge && styles.emojiLarge]}>
         {mood.emoji}
       </Text>
       <Text
         style={[
           styles.label,
-          size === "large" && styles.labelLarge,
-          selected && { color: mood.color },
-          !selected && { color: Colors.textSecondary },
+          isLarge && styles.labelLarge,
+          { color: selected ? mood.color : Colors.textSecondary },
         ]}
       >
         {mood.label}
       </Text>
+
+      {/* Active indicator dot */}
+      {selected && (
+        <View
+          style={[styles.activeDot, { backgroundColor: mood.color }]}
+        />
+      )}
     </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
   chip: {
-    flexDirection:   "row",
-    alignItems:      "center",
-    gap:             6,
-    borderRadius:    20,
+    flexDirection:     "row",
+    alignItems:        "center",
+    gap:               6,
+    borderRadius:      20,
     paddingHorizontal: 14,
-    paddingVertical:   8,
-    borderWidth:     1,
+    paddingVertical:   9,
+    borderWidth:       1,
   },
   chipDefault: {
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.glass,
     borderColor:     Colors.border,
   },
   chipLarge: {
@@ -70,17 +86,24 @@ const styles = StyleSheet.create({
     gap:               10,
   },
   emoji: {
-    fontSize: 16,
+    fontSize: 15,
   },
   emojiLarge: {
-    fontSize: 28,
+    fontSize: 26,
   },
   label: {
     fontSize:   13,
-    fontWeight: "500",
+    fontWeight: "600",
+    letterSpacing: 0.1,
   },
   labelLarge: {
     fontSize:   16,
-    fontWeight: "600",
+    fontWeight: "700",
+  },
+  activeDot: {
+    width:        5,
+    height:       5,
+    borderRadius: 2.5,
+    marginLeft:   2,
   },
 });
