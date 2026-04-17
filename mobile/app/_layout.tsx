@@ -57,17 +57,29 @@ function AuthGate() {
   }, []);
 
   // 2. Handle deep link auth callbacks
-  //    e.g. watch-yourself://auth/callback?access_token=...
+  //    Supabase PKCE flow:     watch-yourself://auth/callback?code=...
+  //    Legacy implicit flow:   watch-yourself://auth/callback#access_token=...
   useEffect(() => {
     const handleUrl = async (url: string) => {
-      if (url.includes("auth/callback")) {
-        const parsed = Linking.parse(url);
-        const accessToken  = parsed.queryParams?.access_token as string;
-        const refreshToken = parsed.queryParams?.refresh_token as string;
+      if (!url.includes("auth/callback")) return;
 
-        if (accessToken && refreshToken) {
-          await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
-        }
+      const parsed = Linking.parse(url);
+
+      // PKCE flow (default in Supabase v2+) — exchange code for session
+      const code = parsed.queryParams?.code as string | undefined;
+      if (code) {
+        await supabase.auth.exchangeCodeForSession(code);
+        return;
+      }
+
+      // Legacy implicit flow fallback
+      const accessToken  = parsed.queryParams?.access_token as string | undefined;
+      const refreshToken = parsed.queryParams?.refresh_token as string | undefined;
+      if (accessToken && refreshToken) {
+        await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
       }
     };
 
@@ -76,7 +88,7 @@ function AuthGate() {
       if (url) handleUrl(url);
     });
 
-    // Listen for URLs while app is running
+    // Listen for URLs while app is running (warm start / foreground)
     const sub = Linking.addEventListener("url", ({ url }) => handleUrl(url));
     return () => sub.remove();
   }, []);

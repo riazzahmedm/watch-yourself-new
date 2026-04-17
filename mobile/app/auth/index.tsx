@@ -1,7 +1,8 @@
 // ============================================================
 // Auth Screen — app/auth/index.tsx
-// Apple Sign In + Google OAuth.
-// Opens system browser for OAuth (not in-app WebView — Apple rejects WebViews).
+// Google OAuth via expo-web-browser (openAuthSessionAsync).
+// Uses Supabase PKCE flow: browser returns ?code= which is
+// exchanged for a session in _layout.tsx deep-link handler.
 // ============================================================
 
 import {
@@ -11,12 +12,15 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
-  Image,
 } from "react-native";
 import { useState } from "react";
+import * as WebBrowser from "expo-web-browser";
 import * as Linking from "expo-linking";
 import { supabase } from "@/lib/supabase";
 import { Colors } from "@/constants/colors";
+
+// Warm up the browser on Android so it opens instantly
+WebBrowser.maybeCompleteAuthSession();
 
 export default function AuthScreen() {
   const [loading, setLoading] = useState<"google" | "apple" | null>(null);
@@ -25,33 +29,54 @@ export default function AuthScreen() {
   const signInWithGoogle = async () => {
     setLoading("google");
     try {
+      // The redirect URL must EXACTLY match what's in Supabase →
+      // Authentication → URL Configuration → Redirect URLs
       const redirectTo = Linking.createURL("/auth/callback");
+
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
           redirectTo,
-          skipBrowserRedirect: true,
+          skipBrowserRedirect: true, // we open the browser ourselves below
         },
       });
+
       if (error) throw error;
-      if (data.url) {
-        // Opens system browser — NOT an in-app WebView
-        await Linking.openURL(data.url);
+      if (!data.url) throw new Error("No OAuth URL returned from Supabase");
+
+      // openAuthSessionAsync closes the browser automatically once the
+      // redirect URL is detected — much cleaner than Linking.openURL
+      const result = await WebBrowser.openAuthSessionAsync(
+        data.url,
+        redirectTo
+      );
+
+      if (result.type === "success") {
+        // The deep-link handler in _layout.tsx handles the code exchange.
+        // Force-trigger it in case the app was already foregrounded.
+        const url = result.url;
+        const parsed = Linking.parse(url);
+        const code = parsed.queryParams?.code as string | undefined;
+        if (code) {
+          const { error: exchangeError } =
+            await supabase.auth.exchangeCodeForSession(code);
+          if (exchangeError) throw exchangeError;
+        }
       }
-    } catch (err) {
-      Alert.alert("Sign in failed", (err as Error).message);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Something went wrong";
+      Alert.alert("Sign in failed", message);
     } finally {
       setLoading(null);
     }
   };
 
   // ---- Apple Sign In ----------------------------------------
-  // Requires expo-apple-authentication — add in a future sprint
-  // For now stub with a placeholder that shows intent
-  const signInWithApple = async () => {
+  const signInWithApple = () => {
     Alert.alert(
       "Coming soon",
-      "Apple Sign In requires a physical device and paid Apple Developer account. Use Google for now."
+      "Apple Sign In requires a physical device and a paid Apple Developer account. Use Google for now."
     );
   };
 
@@ -83,7 +108,7 @@ export default function AuthScreen() {
           onPress={signInWithApple}
           activeOpacity={0.85}
         >
-          <Text style={styles.btnIcon}>🍎</Text>
+          <Text style={[styles.btnIcon, { color: Colors.background }]}>🍎</Text>
           <Text style={[styles.btnText, styles.appleBtnText]}>
             Continue with Apple
           </Text>
@@ -97,10 +122,10 @@ export default function AuthScreen() {
           disabled={loading === "google"}
         >
           {loading === "google" ? (
-            <ActivityIndicator color={Colors.background} size="small" />
+            <ActivityIndicator color={Colors.text} size="small" />
           ) : (
             <>
-              <Text style={styles.btnIcon}>G</Text>
+              <Text style={[styles.btnIcon, { color: Colors.text }]}>G</Text>
               <Text style={[styles.btnText, styles.googleBtnText]}>
                 Continue with Google
               </Text>
@@ -197,7 +222,6 @@ const styles = StyleSheet.create({
   },
   btnIcon: {
     fontSize: 18,
-    color: Colors.background,
   },
   legal: {
     fontSize: 12,
