@@ -57,7 +57,7 @@ function AuthGate() {
   }, []);
 
   // 2. Handle deep link auth callbacks
-  //    e.g. cinemood://auth/callback?access_token=...
+  //    e.g. watch-yourself://auth/callback?access_token=...
   useEffect(() => {
     const handleUrl = async (url: string) => {
       if (url.includes("auth/callback")) {

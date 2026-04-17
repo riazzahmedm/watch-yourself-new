@@ -1,5 +1,5 @@
 -- ============================================================
--- CineMood: Initial Schema
+-- Watch Yourself: Initial Schema
 -- Migration: 20260413000001_initial_schema.sql
 -- ============================================================
 

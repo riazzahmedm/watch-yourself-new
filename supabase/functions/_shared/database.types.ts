@@ -1,5 +1,5 @@
 // ============================================================
-// CineMood — Supabase Database Types
+// Watch Yourself — Supabase Database Types
 // Auto-keep in sync with migrations. Re-generate with:
 //   supabase gen types typescript --local > supabase/functions/_shared/database.types.ts
 // ============================================================

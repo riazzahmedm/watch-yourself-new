@@ -1,5 +1,5 @@
 // ============================================================
-// Shared CORS headers for all CineMood Edge Functions
+// Shared CORS headers for all Watch Yourself Edge Functions
 // ============================================================
 
 export const corsHeaders = {

@@ -1,13 +1,13 @@
 // ============================================================
-// CineMood — Media Enrichment Logic
+// Watch Yourself — Media Enrichment Logic
 // Shared by: enrich-media, import-catalog
 //
 // Converts raw TMDB data (genres + keywords) into:
 //   1. mood_scores   → {moodSlug: 0.0–1.0}
 //   2. mood_tag_slugs → string[] of qualifying moods
-//   3. cinemood_score → single quality float
+//   3. watch_yourself_score → single quality float
 //
-// This is the proprietary layer that makes CineMood different
+// This is the proprietary layer that makes Watch Yourself different
 // from a plain TMDB wrapper. Over time, user behavior signals
 // (mood_match_rates, avg_user_rating) will layer on top.
 // ============================================================
@@ -202,14 +202,14 @@ export interface MediaInput {
 export interface EnrichmentResult {
   mood_scores:     Record<string, number>;  // {slug: 0.0–1.0}
   mood_tag_slugs:  string[];
-  cinemood_score:  number;
+  watch_yourself_score:  number;
 }
 
 // ---- Core enrichment function ------------------------------
 
 /**
  * Scores a media item against every mood rule and computes
- * the CineMood quality score. Pure function — no DB calls.
+ * the Watch Yourself quality score. Pure function — no DB calls.
  */
 export function enrichMedia(media: MediaInput): EnrichmentResult {
   const moodScores: Record<string, number> = {};
@@ -248,7 +248,7 @@ export function enrichMedia(media: MediaInput): EnrichmentResult {
     }
   }
 
-  const cineMoodScore = computeCineMoodScore(
+  const cineMoodScore = computeWatchYourselfScore(
     media.tmdb_rating,
     media.tmdb_vote_count,
     media.tmdb_keywords.length
@@ -257,13 +257,13 @@ export function enrichMedia(media: MediaInput): EnrichmentResult {
   return {
     mood_scores:    moodScores,
     mood_tag_slugs: qualifyingSlugs,
-    cinemood_score: cineMoodScore,
+    watch_yourself_score: cineMoodScore,
   };
 }
 
 /**
  * Blends TMDB signals into a single quality score (0–1).
- * Mirrors the SQL compute_cinemood_score() function exactly
+ * Mirrors the SQL compute_watch_yourself_score() function exactly
  * so results are consistent whether computed in TypeScript or SQL.
  *
  * Weights:
@@ -271,7 +271,7 @@ export function enrichMedia(media: MediaInput): EnrichmentResult {
  *   35% — log-scaled vote count   (credibility signal)
  *   10% — keyword count           (metadata richness)
  */
-export function computeCineMoodScore(
+export function computeWatchYourselfScore(
   rating:       number | null,
   voteCount:    number,
   keywordCount: number

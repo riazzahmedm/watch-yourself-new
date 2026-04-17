@@ -1,5 +1,5 @@
 -- ============================================================
--- CineMood: Seed Data
+-- Watch Yourself: Seed Data
 -- Migration: 20260413000003_seed_data.sql
 -- ============================================================
 -- TMDB Genre IDs reference:

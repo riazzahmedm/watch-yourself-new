@@ -7,7 +7,7 @@
 // Run on a pg_cron schedule (e.g. nightly at 3AM).
 //
 // Updates three behavior columns on media:
-//   total_logs_count  — how many CineMood users logged this
+//   total_logs_count  — how many Watch Yourself users logged this
 //   avg_user_rating   — average of OUR users' ratings (vs TMDB's)
 //   mood_match_rates  — per-mood match rate from MoodFeedback
 //

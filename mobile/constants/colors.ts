@@ -1,5 +1,5 @@
 // ============================================================
-// CineMood Design System — Colors
+// Watch Yourself Design System — Colors
 // Dark-first. All screens use this palette.
 // ============================================================
 

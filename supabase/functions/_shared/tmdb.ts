@@ -1,5 +1,5 @@
 // ============================================================
-// TMDB API client for CineMood Edge Functions
+// TMDB API client for Watch Yourself Edge Functions
 // All TMDB calls are server-side only — key never leaves backend.
 // ============================================================
 

@@ -7,19 +7,19 @@
 // Zero TMDB API calls at runtime.
 //
 // Ranking layers (applied in order):
-//   1. Filter   — mood_tag_slugs match, min cinemood_score
+//   1. Filter   — mood_tag_slugs match, min watch_yourself_score
 //   2. Exclude  — already watched by this user
-//   3. Score    — blend of cinemood_score + taste DNA affinity
+//   3. Score    — blend of watch_yourself_score + taste DNA affinity
 //                 + user behavior signals (total_logs, match rates)
 //   4. Diversity — avoid returning all same-genre results
 //   5. Return top N
 //
 // Data sources used:
 //   media.mood_tag_slugs      ← Layer 1: our proprietary mood tags
-//   media.cinemood_score      ← Layer 2: our quality signal
+//   media.watch_yourself_score      ← Layer 2: our quality signal
 //   media.mood_match_rates    ← Layer 3: real user feedback
 //   media.avg_user_rating     ← Layer 3: our community rating
-//   media.total_logs_count    ← Layer 3: popularity within CineMood
+//   media.total_logs_count    ← Layer 3: popularity within Watch Yourself
 //   taste_dna.genre_affinities ← Layer 3: personalisation
 // ============================================================
 
@@ -105,15 +105,15 @@ Deno.serve(async (req: Request) => {
         id, tmdb_id, media_type, title, overview,
         poster_path, release_year, tmdb_genres,
         tmdb_genre_ids, runtime_minutes,
-        tmdb_rating, cinemood_score,
+        tmdb_rating, watch_yourself_score,
         mood_scores, mood_tag_slugs, mood_match_rates,
         avg_user_rating, total_logs_count
       `)
       .contains("mood_tag_slugs", [moodSlug])       // must qualify for this mood
-      .gte("cinemood_score", MIN_CINEMOOD_SCORE)     // quality floor
+      .gte("watch_yourself_score", MIN_CINEMOOD_SCORE)     // quality floor
       .eq("media_type", "movie")                     // movies only for v1
-      .not("cinemood_score", "is", null)             // must be enriched
-      .order("cinemood_score", { ascending: false })
+      .not("watch_yourself_score", "is", null)             // must be enriched
+      .order("watch_yourself_score", { ascending: false })
       .limit(CANDIDATE_POOL);
 
     if (queryError) throw queryError;
@@ -141,7 +141,7 @@ Deno.serve(async (req: Request) => {
 
     const scored = (unseen as Candidate[]).map((m) => {
       // --- Base: our quality signal (0–1)
-      const base = (m.cinemood_score as number) ?? 0;
+      const base = (m.watch_yourself_score as number) ?? 0;
 
       // --- Mood affinity: how well does this item score for THIS mood?
       const moodScores = m.mood_scores as Record<string, number> ?? {};
@@ -153,7 +153,7 @@ Deno.serve(async (req: Request) => {
         ? (matchRates[moodSlug] ?? 0.5) * 0.15
         : 0;
 
-      // --- CineMood community rating (if enough users have rated it)
+      // --- Watch Yourself community rating (if enough users have rated it)
       const communityRating = m.avg_user_rating != null && (m.total_logs_count as number) >= 5
         ? ((m.avg_user_rating as number) / 5.0) * 0.10   // normalise 0–5 scale to 0–1
         : 0;
@@ -198,7 +198,7 @@ Deno.serve(async (req: Request) => {
       releaseYear:   m.release_year,
       genres:        m.tmdb_genres,
       tmdbRating:    m.tmdb_rating,
-      cineMoodScore: m.cinemood_score,
+      cineMoodScore: m.watch_yourself_score,
       communityRating: m.avg_user_rating,
       runtimeMins:   m.runtime_minutes,
       // Expose why this was recommended (transparency)

@@ -1,5 +1,5 @@
 -- ============================================================
--- CineMood: Media Enrichment Layer
+-- Watch Yourself: Media Enrichment Layer
 -- Migration: 20260413000004_media_enrichment.sql
 --
 -- Adds three enrichment layers to the media table:
@@ -8,14 +8,14 @@
 --     Which moods does this media suit? Computed from
 --     TMDB genres + keywords using our rule engine.
 --
---   Layer 2 — CineMood Score
+--   Layer 2 — Watch Yourself Score
 --     Our own quality signal blending TMDB rating, vote
 --     count, and keyword relevance. Better than raw TMDB
 --     rating for recommendations.
 --
 --   Layer 3 — User Behavior Signals
 --     Aggregated from our users' logs + mood feedback.
---     The longer CineMood runs, the more unique and
+--     The longer Watch Yourself runs, the more unique and
 --     accurate this becomes.
 -- ============================================================
 
@@ -28,8 +28,8 @@ alter table public.media
   add column if not exists mood_tag_slugs     text[]   not null default '{}',
   -- Denorm array for fast overlap queries e.g. WHERE mood_tag_slugs && '{mind_blown}'
 
-  -- Layer 2: CineMood score
-  add column if not exists cinemood_score     numeric(4,3) default null,
+  -- Layer 2: Watch Yourself score
+  add column if not exists watch_yourself_score     numeric(4,3) default null,
   -- Our blended quality signal (0.0–1.0). Null = not yet computed.
 
   -- Layer 3: user behavior signals (updated by sync-behavior-signals)
@@ -41,9 +41,9 @@ alter table public.media
 
 comment on column public.media.mood_scores      is 'Mood relevance scores per mood slug, 0–1. Computed by enrich-media.';
 comment on column public.media.mood_tag_slugs   is 'Denorm array of applicable mood slugs for fast GIN queries.';
-comment on column public.media.cinemood_score   is 'CineMood quality signal 0–1 (blends TMDB rating + vote depth + keyword richness).';
-comment on column public.media.total_logs_count is 'How many times this media has been logged by CineMood users.';
-comment on column public.media.avg_user_rating  is 'Average rating by CineMood users (different from TMDB vote_average).';
+comment on column public.media.watch_yourself_score   is 'Watch Yourself quality signal 0–1 (blends TMDB rating + vote depth + keyword richness).';
+comment on column public.media.total_logs_count is 'How many times this media has been logged by Watch Yourself users.';
+comment on column public.media.avg_user_rating  is 'Average rating by Watch Yourself users (different from TMDB vote_average).';
 comment on column public.media.mood_match_rates is 'Per-mood match rate from MoodFeedback. Our proprietary signal.';
 comment on column public.media.last_enriched_at is 'When enrich-media last ran on this row.';
 
@@ -51,8 +51,8 @@ comment on column public.media.last_enriched_at is 'When enrich-media last ran o
 create index if not exists idx_media_mood_slugs
   on public.media using gin(mood_tag_slugs);
 
-create index if not exists idx_media_cinemood_score
-  on public.media(cinemood_score desc nulls last);
+create index if not exists idx_media_watch_yourself_score
+  on public.media(watch_yourself_score desc nulls last);
 
 create index if not exists idx_media_enriched
   on public.media(last_enriched_at nulls first);
@@ -79,10 +79,10 @@ create policy "catalog_import_log_service_only"
   on public.catalog_import_log for all
   using (false);  -- blocks all direct client access
 
--- ---- DB function: compute_cinemood_score --------------------
+-- ---- DB function: compute_watch_yourself_score --------------------
 -- Pure SQL formula so it can be called from migrations or triggers.
 
-create or replace function public.compute_cinemood_score(
+create or replace function public.compute_watch_yourself_score(
   p_tmdb_rating    numeric,
   p_vote_count     int,
   p_keyword_count  int   default 0
@@ -155,7 +155,7 @@ create or replace view public.enriched_media as
 select
   m.*,
   -- Computed columns for easy consumption
-  public.compute_cinemood_score(
+  public.compute_watch_yourself_score(
     m.tmdb_rating,
     m.tmdb_vote_count,
     array_length(m.tmdb_keywords, 1)

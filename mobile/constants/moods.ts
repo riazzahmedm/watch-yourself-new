@@ -1,5 +1,5 @@
 // ============================================================
-// CineMood — Mood definitions (client-side copy of DB seed data)
+// Watch Yourself — Mood definitions (client-side copy of DB seed data)
 // Used for UI rendering without a DB round-trip.
 // ============================================================
 

@@ -1,5 +1,5 @@
 -- ============================================================
--- CineMood: Behavior Aggregate RPC
+-- Watch Yourself: Behavior Aggregate RPC
 -- Migration: 20260413000005_behavior_rpc.sql
 -- Called by sync-behavior-signals Edge Function.
 -- ============================================================

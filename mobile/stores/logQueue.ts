@@ -139,7 +139,7 @@ export const useLogQueue = create<LogQueueState>()(
       },
     }),
     {
-      name:    "cinemood-log-queue",
+      name:    "watch-yourself-log-queue",
       storage: createJSONStorage(() => mmkvStorage),
       // Only persist the queue array, not the flush function
       partialize: (state) => ({ queue: state.queue }),

@@ -60,7 +60,7 @@ export default function AuthScreen() {
       {/* Hero */}
       <View style={styles.hero}>
         <Text style={styles.emoji}>🎬</Text>
-        <Text style={styles.title}>CineMood</Text>
+        <Text style={styles.title}>Watch Yourself</Text>
         <Text style={styles.subtitle}>
           Understand yourself{"\n"}through movies
         </Text>

@@ -12,7 +12,7 @@
 //   1. Use TMDB Discover with mood's preferred genres
 //   2. Fetch N pages (default 5, ~100 movies per mood)
 //   3. Upsert into media with full detail
-//   4. Enrich each batch immediately (mood scores + cinemood_score)
+//   4. Enrich each batch immediately (mood scores + watch_yourself_score)
 //   5. Log imported pages into catalog_import_log
 //
 // All recommendation queries hit OUR DB — never TMDB at runtime.
@@ -167,7 +167,7 @@ Deno.serve(async (req: Request) => {
             // Enrichment columns
             mood_scores:       enrichmentResult.mood_scores,
             mood_tag_slugs:    enrichmentResult.mood_tag_slugs,
-            cinemood_score:    enrichmentResult.cinemood_score,
+            watch_yourself_score:    enrichmentResult.watch_yourself_score,
             last_enriched_at:  new Date().toISOString(),
           });
         }

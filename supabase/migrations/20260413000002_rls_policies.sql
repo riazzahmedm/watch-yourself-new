@@ -1,5 +1,5 @@
 -- ============================================================
--- CineMood: Row Level Security Policies
+-- Watch Yourself: Row Level Security Policies
 -- Migration: 20260413000002_rls_policies.sql
 -- ============================================================
 -- All tables that hold user data have RLS enabled.

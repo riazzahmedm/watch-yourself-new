@@ -13,7 +13,7 @@
 //
 // What it does:
 //   1. Loads the media row (already has genres + keywords from cache)
-//   2. Runs enrichMedia() → mood_scores, mood_tag_slugs, cinemood_score
+//   2. Runs enrichMedia() → mood_scores, mood_tag_slugs, watch_yourself_score
 //   3. If MoodFeedback exists → bakes in real match rates
 //   4. Writes back to media table
 // ============================================================
@@ -162,7 +162,7 @@ Deno.serve(async (req: Request) => {
         id:               row.id,
         mood_scores:      finalMoodScores,
         mood_tag_slugs:   finalSlugs,
-        cinemood_score:   result.cinemood_score,
+        watch_yourself_score:   result.watch_yourself_score,
         mood_match_rates: matchRates,
         last_enriched_at: new Date().toISOString(),
       });
@@ -220,7 +220,7 @@ interface EnrichUpdate {
   id:               string;
   mood_scores:      Record<string, number>;
   mood_tag_slugs:   string[];
-  cinemood_score:   number;
+  watch_yourself_score:   number;
   mood_match_rates: Record<string, number>;
   last_enriched_at: string;
 }

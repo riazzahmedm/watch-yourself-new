@@ -68,7 +68,7 @@ export function MediaCard({
           </View>
         )}
 
-        {/* CineMood score badge (only for recommendations) */}
+        {/* Watch Yourself score badge (only for recommendations) */}
         {cineMoodScore != null && (
           <View style={styles.scoreBadge}>
             <Text style={styles.scoreBadgeText}>

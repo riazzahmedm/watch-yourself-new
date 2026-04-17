@@ -121,7 +121,7 @@ export default function ProfileScreen() {
               {/* Stats footer */}
               <View style={styles.dnaFooter}>
                 <Text style={styles.dnaFooterText}>
-                  Based on {totalLogged} logs · CineMood
+                  Based on {totalLogged} logs · Watch Yourself
                 </Text>
               </View>
             </View>
