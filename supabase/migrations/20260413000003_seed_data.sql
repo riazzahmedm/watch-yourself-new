@@ -23,7 +23,7 @@ insert into public.mood_tags (
 
 -- 1. Feeling Low
 (
-  uuid_generate_v4(),
+  gen_random_uuid(),
   'feeling_low',
   'Feeling Low',
   '😔',
@@ -39,7 +39,7 @@ insert into public.mood_tags (
 
 -- 2. Need Intensity
 (
-  uuid_generate_v4(),
+  gen_random_uuid(),
   'need_intensity',
   'Need Intensity',
   '😤',
@@ -55,7 +55,7 @@ insert into public.mood_tags (
 
 -- 3. Comfort Watch
 (
-  uuid_generate_v4(),
+  gen_random_uuid(),
   'comfort_watch',
   'Comfort Watch',
   '😌',
@@ -71,7 +71,7 @@ insert into public.mood_tags (
 
 -- 4. Mind Blown
 (
-  uuid_generate_v4(),
+  gen_random_uuid(),
   'mind_blown',
   'Mind Blown',
   '🤯',
@@ -87,7 +87,7 @@ insert into public.mood_tags (
 
 -- 5. Existential
 (
-  uuid_generate_v4(),
+  gen_random_uuid(),
   'existential',
   'Existential',
   '🌌',
@@ -106,7 +106,7 @@ insert into public.mood_tags (
 -- readable labels to monthly periods.
 
 create table public.phase_label_rules (
-  id               uuid  primary key default uuid_generate_v4(),
+  id               uuid  primary key default gen_random_uuid(),
   mood_slug        text  references public.mood_tags(slug),  -- null = match any mood
   genre_name       text,                                      -- null = match any genre
   phase_label      text  not null,

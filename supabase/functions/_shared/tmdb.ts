@@ -80,14 +80,29 @@ function getTmdbKey(): string {
   return key;
 }
 
+// TMDB supports two auth methods:
+//   v3: short hash string  → ?api_key=abc123
+//   v4: JWT Bearer token   → Authorization: Bearer eyJ...
+// Detect by checking if the key looks like a JWT (starts with "eyJ")
 async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): Promise<T> {
+  const key = getTmdbKey();
   const url = new URL(`${TMDB_BASE}${path}`);
-  url.searchParams.set("api_key", getTmdbKey());
+
+  const headers: Record<string, string> = { Accept: "application/json" };
+
+  if (key.startsWith("eyJ")) {
+    // v4 JWT Read Access Token
+    headers["Authorization"] = `Bearer ${key}`;
+  } else {
+    // v3 API Key
+    url.searchParams.set("api_key", key);
+  }
+
   for (const [k, v] of Object.entries(params)) {
     url.searchParams.set(k, v);
   }
 
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), { headers });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`TMDB ${path} → ${res.status}: ${body}`);

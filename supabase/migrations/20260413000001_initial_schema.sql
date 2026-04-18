@@ -4,7 +4,7 @@
 -- ============================================================
 
 -- Enable required Postgres extensions
-create extension if not exists "uuid-ossp";
+-- uuid-ossp removed: gen_random_uuid() is built-in since PG 13
 create extension if not exists "pg_trgm"; -- for fuzzy text search on media titles
 
 -- ============================================================
@@ -42,7 +42,7 @@ comment on table public.profiles is 'Public user profile extending auth.users';
 -- ============================================================
 
 create table public.mood_tags (
-  id                uuid        primary key default uuid_generate_v4(),
+  id                uuid        primary key default gen_random_uuid(),
   slug              text        unique not null,        -- 'feeling_low'
   label             text        not null,               -- 'Feeling Low'
   emoji             text        not null,               -- '😔'
@@ -65,7 +65,7 @@ comment on table public.mood_tags is 'Fixed mood options that drive the recommen
 -- ============================================================
 
 create table public.media (
-  id                uuid            primary key default uuid_generate_v4(),
+  id                uuid            primary key default gen_random_uuid(),
   tmdb_id           int             unique not null,
   media_type        media_type_enum not null,
   title             text            not null,
@@ -99,7 +99,7 @@ create index idx_media_title_trgm    on public.media using gin(title gin_trgm_op
 -- ============================================================
 
 create table public.episodes (
-  id                uuid        primary key default uuid_generate_v4(),
+  id                uuid        primary key default gen_random_uuid(),
   media_id          uuid        not null references public.media(id) on delete cascade,
   tmdb_episode_id   int         unique,
   season_number     int         not null,
@@ -123,7 +123,7 @@ create index idx_episodes_season   on public.episodes(media_id, season_number);
 -- ============================================================
 
 create table public.logs (
-  id                uuid            primary key default uuid_generate_v4(),
+  id                uuid            primary key default gen_random_uuid(),
   user_id           uuid            not null references public.profiles(id) on delete cascade,
   media_id          uuid            not null references public.media(id),
   episode_id        uuid            references public.episodes(id),   -- null = full movie/season/series
@@ -152,7 +152,7 @@ create index idx_logs_created_at         on public.logs(created_at desc);
 -- ============================================================
 
 create table public.mood_feedback (
-  id                uuid            primary key default uuid_generate_v4(),
+  id                uuid            primary key default gen_random_uuid(),
   user_id           uuid            not null references public.profiles(id) on delete cascade,
   log_id            uuid            not null references public.logs(id) on delete cascade,
   media_id          uuid            not null references public.media(id),
@@ -171,7 +171,7 @@ create index idx_mood_feedback_mood on public.mood_feedback(mood_tag_id, match_r
 -- ============================================================
 
 create table public.taste_dna (
-  id                    uuid        primary key default uuid_generate_v4(),
+  id                    uuid        primary key default gen_random_uuid(),
   user_id               uuid        unique not null references public.profiles(id) on delete cascade,
   -- genre affinities: {tmdb_genre_id: 0.0–1.0}  e.g. {"28": 0.82, "18": 0.65}
   genre_affinities      jsonb       not null default '{}',
@@ -197,7 +197,7 @@ comment on table public.taste_dna is 'Computed user taste profile. Recomputed af
 -- ============================================================
 
 create table public.timeline_periods (
-  id                    uuid            primary key default uuid_generate_v4(),
+  id                    uuid            primary key default gen_random_uuid(),
   user_id               uuid            not null references public.profiles(id) on delete cascade,
   period_type           period_type_enum not null,
   period_year           int             not null,
@@ -225,7 +225,7 @@ create index idx_timeline_user_period on public.timeline_periods(user_id, period
 -- ============================================================
 
 create table public.watchlist (
-  id                uuid        primary key default uuid_generate_v4(),
+  id                uuid        primary key default gen_random_uuid(),
   user_id           uuid        not null references public.profiles(id) on delete cascade,
   media_id          uuid        not null references public.media(id),
   added_at          timestamptz not null default now(),
@@ -241,7 +241,7 @@ create index idx_watchlist_user on public.watchlist(user_id, added_at desc);
 -- ============================================================
 
 create table public.device_tokens (
-  id                uuid        primary key default uuid_generate_v4(),
+  id                uuid        primary key default gen_random_uuid(),
   user_id           uuid        not null references public.profiles(id) on delete cascade,
   expo_push_token   text        not null,
   platform          text        not null check (platform in ('ios', 'android')),

@@ -1,32 +1,56 @@
-export interface KVStorage {
-  getString: (key: string) => string | undefined;
-  set: (key: string, value: string) => void;
-  delete: (key: string) => void;
+// ============================================================
+// KV Storage abstraction
+//
+// Production (dev build):  react-native-mmkv  — synchronous, fast
+// Expo Go fallback:        AsyncStorage       — async, works everywhere
+//
+// IMPORTANT: never import react-native-mmkv at the top level.
+// The static import crashes in Expo Go (NitroModules not supported).
+// Always use dynamic require() inside a try/catch.
+// ============================================================
+
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+// Zustand createJSONStorage-compatible interface
+export interface ZustandStorage {
+  getItem:    (key: string) => string | null | Promise<string | null>;
+  setItem:    (key: string, value: string) => void | Promise<void>;
+  removeItem: (key: string) => void | Promise<void>;
 }
 
-function createMemoryStorage(): KVStorage {
-  const store = new Map<string, string>();
+// Synchronous MMKV adapter (only used when native build is available)
+function createMMKVStorage(id: string): ZustandStorage {
+  // Dynamic require so the static import never runs in Expo Go
+  const { MMKV } = require("react-native-mmkv") as {
+    MMKV: new (opts: { id: string }) => {
+      getString: (key: string) => string | undefined;
+      set:       (key: string, value: string) => void;
+      delete:    (key: string) => void;
+    };
+  };
+  const store = new MMKV({ id });
   return {
-    getString: (key) => store.get(key),
-    set: (key, value) => {
-      store.set(key, value);
-    },
-    delete: (key) => {
-      store.delete(key);
-    },
+    getItem:    (key) => store.getString(key) ?? null,
+    setItem:    (key, value) => store.set(key, value),
+    removeItem: (key) => store.delete(key),
   };
 }
 
-export function createKVStorage(id: string): KVStorage {
-  try {
-    // Expo Go does not support NitroModules (MMKV), so requiring can throw.
-    const mmkvModule = require("react-native-mmkv") as { MMKV?: new (opts: { id: string }) => KVStorage };
-    if (mmkvModule.MMKV) {
-      return new mmkvModule.MMKV({ id });
-    }
-  } catch {
-    // Fall back to in-memory storage in Expo Go/development clients.
-  }
+// AsyncStorage adapter (works in Expo Go)
+const asyncStorageAdapter: ZustandStorage = {
+  getItem:    (key) => AsyncStorage.getItem(key),
+  setItem:    (key, value) => AsyncStorage.setItem(key, value),
+  removeItem: (key) => AsyncStorage.removeItem(key),
+};
 
-  return createMemoryStorage();
+/**
+ * Returns an MMKV-backed storage in native builds,
+ * AsyncStorage-backed storage in Expo Go.
+ */
+export function createKVStorage(_id: string): ZustandStorage {
+  try {
+    return createMMKVStorage(_id);
+  } catch {
+    return asyncStorageAdapter;
+  }
 }

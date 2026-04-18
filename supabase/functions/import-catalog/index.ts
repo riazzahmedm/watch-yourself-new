@@ -32,10 +32,10 @@ Deno.serve(async (req: Request) => {
   const cors = handleCors(req);
   if (cors) return cors;
 
-  // Service-role only
-  const authHeader = req.headers.get("Authorization") ?? "";
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "INVALID";
-  if (!authHeader.includes(serviceKey)) {
+  // Admin-only endpoint: check X-Admin-Key header against IMPORT_ADMIN_KEY secret
+  const providedKey = req.headers.get("X-Admin-Key") ?? "";
+  const adminKey    = Deno.env.get("IMPORT_ADMIN_KEY") ?? "INVALID";
+  if (!providedKey || providedKey !== adminKey) {
     return errorResponse("Unauthorized", 401);
   }
 
@@ -97,8 +97,8 @@ Deno.serve(async (req: Request) => {
       // Fetch from TMDB Discover
       await sleep(TMDB_DELAY_MS);
       const movies = await discoverMovies({
-        with_genres:        moodTag.preferred_genres.join(","),
-        without_genres:     moodTag.avoid_genres.join(","),
+        with_genres:        moodTag.preferred_genres.join("|"),   // | = OR logic in TMDB
+        without_genres:     moodTag.avoid_genres.join("|"),
         "vote_average.gte": String(moodTag.min_tmdb_rating),
         "runtime.lte":      moodTag.max_runtime_mins
           ? String(moodTag.max_runtime_mins)

@@ -15,14 +15,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import { supabase } from "@/lib/supabase";
 import { createKVStorage } from "@/lib/kvStorage";
 
-const storage = createKVStorage("log-queue");
-
-// Zustand persist storage adapter backed by MMKV
-const mmkvStorage = {
-  getItem:    (key: string) => storage.getString(key) ?? null,
-  setItem:    (key: string, value: string) => storage.set(key, value),
-  removeItem: (key: string) => storage.delete(key),
-};
+const kvStorage = createKVStorage("log-queue");
 
 const MAX_RETRIES = 3;
 
@@ -140,7 +133,7 @@ export const useLogQueue = create<LogQueueState>()(
     }),
     {
       name:    "watch-yourself-log-queue",
-      storage: createJSONStorage(() => mmkvStorage),
+      storage: createJSONStorage(() => kvStorage),
       // Only persist the queue array, not the flush function
       partialize: (state) => ({ queue: state.queue }),
     }

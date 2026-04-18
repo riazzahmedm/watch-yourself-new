@@ -62,7 +62,7 @@ create index if not exists idx_media_enriched
 -- so the import-catalog function can resume / avoid duplicates.
 
 create table public.catalog_import_log (
-  id            uuid        primary key default uuid_generate_v4(),
+  id            uuid        primary key default gen_random_uuid(),
   mood_slug     text        not null,
   tmdb_page     int         not null,
   media_count   int         not null default 0,

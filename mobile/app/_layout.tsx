@@ -20,6 +20,7 @@ import { Toaster } from "sonner-native";
 import { supabase } from "@/lib/supabase";
 import { initAuthListener, useAuthStore } from "@/stores/auth";
 import { useLogQueue } from "@/stores/logQueue";
+import { useOnboardingStore } from "@/stores/onboarding";
 
 // TanStack Query client — shared across the whole app
 const queryClient = new QueryClient({
@@ -56,9 +57,10 @@ export default function RootLayout() {
 
 function AuthGate() {
   const { session, isLoading } = useAuthStore();
-  const { flush } = useLogQueue();
-  const router  = useRouter();
-  const segments = useSegments();
+  const { flush }              = useLogQueue();
+  const { isOnboarded }        = useOnboardingStore();
+  const router                 = useRouter();
+  const segments               = useSegments();
 
   // 1. Initialise Supabase auth listener once
   useEffect(() => {
@@ -118,17 +120,21 @@ function AuthGate() {
   useEffect(() => {
     if (isLoading) return;
 
-    const inAuthGroup   = segments[0] === "auth";
-    const inOnboarding  = segments[0] === "onboarding";
-    const inTabs        = segments[0] === "(tabs)";
+    const inAuthGroup  = segments[0] === "auth";
+    const inOnboarding = segments[0] === "onboarding";
+    const inTabs       = segments[0] === "(tabs)";
 
     if (!session && !inAuthGroup) {
+      // Not signed in → auth screen
       router.replace("/auth");
-    } else if (session && !inTabs) {
-      // Covers: auth screen, onboarding, root index (/), anything else
+    } else if (session && !isOnboarded && !inOnboarding) {
+      // Signed in but hasn't picked genres yet → onboarding
+      router.replace("/onboarding");
+    } else if (session && isOnboarded && !inTabs) {
+      // Signed in + onboarded → main app
       router.replace("/(tabs)/discover");
     }
-  }, [session, isLoading, segments, router]);
+  }, [session, isLoading, isOnboarded, segments, router]);
 
   return <Slot />;
 }
