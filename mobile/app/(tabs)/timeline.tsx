@@ -2,16 +2,21 @@
 // Timeline Tab — monthly/yearly emotional watch history
 // ============================================================
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   View, Text, ScrollView, StyleSheet,
   TouchableOpacity, TextInput,
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/lib/supabase";
+import { supabase, callEdgeFunction } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth";
 import { Colors } from "@/constants/colors";
-import { getMood } from "@/constants/moods";
+
+/** True when timeline was never computed or is older than 1 hour */
+function isTimelineStale(computedAt: string | null | undefined): boolean {
+  if (!computedAt) return true;
+  return Date.now() - new Date(computedAt).getTime() > 60 * 60 * 1000;
+}
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
@@ -39,6 +44,23 @@ export default function TimelineScreen() {
     },
     enabled: !!user,
   });
+
+  // Auto-trigger timeline generation when tab opens and data is stale
+  const computeTimeline = useMutation({
+    mutationFn: () => callEdgeFunction("generate-timeline", {}),
+    onSuccess:  () => {
+      queryClient.invalidateQueries({ queryKey: ["timeline", user?.id] });
+    },
+  });
+
+  useEffect(() => {
+    if (!user) return;
+    const mostRecent = periods?.[0];
+    if (isTimelineStale(mostRecent?.computed_at) && !computeTimeline.isPending) {
+      computeTimeline.mutate();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, periods]);
 
   // Save life context note
   const saveNote = useMutation({

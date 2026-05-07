@@ -172,6 +172,14 @@ export function useCreateLog() {
       } catch {
         // DNA recompute is best-effort — never block the log success path
       }
+
+      // Always regenerate timeline after a new log — fire-and-forget
+      try {
+        await callEdgeFunction("generate-timeline", {});
+        queryClient.invalidateQueries({ queryKey: ["timeline", user?.id] });
+      } catch {
+        // Timeline recompute is best-effort — never block the log success path
+      }
     },
   });
 }
