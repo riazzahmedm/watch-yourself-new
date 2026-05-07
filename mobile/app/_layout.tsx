@@ -123,6 +123,8 @@ function AuthGate() {
     const inAuthGroup  = segments[0] === "auth";
     const inOnboarding = segments[0] === "onboarding";
     const inTabs       = segments[0] === "(tabs)";
+    // Modal and detail screens sit above tabs — don't redirect away from them
+    const inOverlay    = segments[0] === "log-sheet" || segments[0] === "media";
 
     if (!session && !inAuthGroup) {
       // Not signed in → auth screen
@@ -130,7 +132,7 @@ function AuthGate() {
     } else if (session && !isOnboarded && !inOnboarding) {
       // Signed in but hasn't picked genres yet → onboarding
       router.replace("/onboarding");
-    } else if (session && isOnboarded && !inTabs) {
+    } else if (session && isOnboarded && !inTabs && !inOverlay) {
       // Signed in + onboarded → main app
       router.replace("/(tabs)/discover");
     }

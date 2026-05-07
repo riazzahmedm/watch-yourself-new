@@ -7,6 +7,7 @@ export interface LogEntry {
   id:                  string;
   mediaId:             string;
   episodeId:           string | null;
+  seasonNumber:        number | null;
   logType:             "movie" | "series_episode" | "series_season" | "series_full";
   watchedAt:           string;
   rating:              number | null;
@@ -48,7 +49,7 @@ export function useLogs(limit = 50) {
       const { data, error } = await supabase
         .from("logs")
         .select(`
-          id, media_id, episode_id, log_type, watched_at,
+          id, media_id, episode_id, season_number, log_type, watched_at,
           rating, reaction_stamp, review, mood_tag_id,
           watch_platform, interest_hook,
           pre_watch_emotion_id, pre_watch_answer,
@@ -82,6 +83,7 @@ export function useCreateLog() {
     mutationFn: async (input: {
       mediaId:             string;
       episodeId?:          string;
+      seasonNumber?:       number;
       logType:             LogEntry["logType"];
       watchedAt:           string;
       rating?:             number;
@@ -101,7 +103,8 @@ export function useCreateLog() {
         .insert({
           user_id:               user!.id,
           media_id:              input.mediaId,
-          episode_id:            input.episodeId ?? null,
+          episode_id:            input.episodeId  ?? null,
+          season_number:         input.seasonNumber ?? null,
           log_type:              input.logType,
           watched_at:            input.watchedAt,
           rating:                input.rating ?? null,
@@ -128,6 +131,7 @@ export function useCreateLog() {
         userId:            user!.id,
         mediaId:           input.mediaId,
         episodeId:         input.episodeId,
+        seasonNumber:      input.seasonNumber,
         logType:           input.logType,
         watchedAt:         input.watchedAt,
         rating:            input.rating,
@@ -180,6 +184,7 @@ function mapLog(raw: Record<string, unknown>): LogEntry {
     id:                 raw.id as string,
     mediaId:            raw.media_id as string,
     episodeId:          raw.episode_id as string | null,
+    seasonNumber:       raw.season_number as number | null,
     logType:            raw.log_type as LogEntry["logType"],
     watchedAt:          raw.watched_at as string,
     rating:             raw.rating as number | null,

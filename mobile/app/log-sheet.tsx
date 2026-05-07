@@ -19,6 +19,7 @@ import {
   Platform,
   Animated,
   KeyboardAvoidingView,
+  ActivityIndicator,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Image } from "expo-image";
@@ -30,7 +31,7 @@ import { toast } from "sonner-native";
 
 import { Colors, Gradients } from "@/constants/colors";
 import { useSearch, type SearchResult } from "@/hooks/useSearch";
-import { useCreateLog } from "@/hooks/useLogs";
+import { useCreateLog, type LogEntry } from "@/hooks/useLogs";
 import { useAuthStore } from "@/stores/auth";
 import { supabase } from "@/lib/supabase";
 import {
@@ -38,7 +39,7 @@ import {
   type MoodQuestion,
   type MoodQuestionOption,
 } from "@/hooks/useMoodQuestion";
-import { useMediaDetail, type CastMember } from "@/hooks/useMediaDetail";
+import { useMediaDetail, useSeasonEpisodes, type CastMember, type Episode } from "@/hooks/useMediaDetail";
 import {
   ENERGY_OPTIONS,
   MIND_OPTIONS,
@@ -131,6 +132,11 @@ export default function LogSheet() {
     slug: string; questionId: string; answer: string;
   } | null>(null);
 
+  // Episode / season selection (series only)
+  const [selectedSeason,    setSelectedSeason]    = useState<number | null>(null);
+  const [selectedEpisodeId, setSelectedEpisodeId] = useState<string | null>(null);
+  const [selectedEpisodeSeason, setSelectedEpisodeSeason] = useState<number | null>(null);
+
   // Log form state
   const [stamp,        setStamp]        = useState<StampKey | null>(null);
   const [platform,     setPlatform]     = useState<PlatformKey | null>(null);
@@ -154,11 +160,14 @@ export default function LogSheet() {
   const resolveEmotion = useResolveEmotion();
   const { user }       = useAuthStore();
 
-  // Fill in title/poster for pre-selected media
+  // Prefetch media detail as soon as we have any selected media.
+  // Using selectedMedia (which covers both search-selected and pre-selected paths)
+  // means the fetch starts at Step 1 selection, so data is ready by Step 3.
+  // Step3LogForm uses the same query key → gets instant cache hit.
   const { data: preDetail } = useMediaDetail(
-    preSelected?.id ?? null,
-    preSelected?.tmdbId ?? null,
-    preSelected?.mediaType ?? "movie"
+    selectedMedia?.id   ?? null,
+    selectedMedia?.tmdbId ?? null,
+    selectedMedia?.mediaType ?? "movie"
   );
 
   useEffect(() => {
@@ -224,10 +233,21 @@ export default function LogSheet() {
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
+    const derivedLogType: LogEntry["logType"] =
+      selectedMedia.mediaType === "movie" ? "movie"
+        : selectedEpisodeId ? "series_episode"
+        : selectedSeason    ? "series_season"
+        : "series_full";
+
+    const derivedSeasonNumber =
+      selectedEpisodeId ? selectedEpisodeSeason : selectedSeason;
+
     createLog.mutate(
       {
         mediaId:             selectedMedia.id,
-        logType:             selectedMedia.mediaType === "movie" ? "movie" : "series_full",
+        logType:             derivedLogType,
+        episodeId:           selectedEpisodeId ?? undefined,
+        seasonNumber:        derivedSeasonNumber ?? undefined,
         watchedAt:           getWatchedAtDate(),
         reactionStamp:       stamp ?? undefined,
         watchPlatform:       platform ?? undefined,
@@ -255,6 +275,7 @@ export default function LogSheet() {
   }, [
     selectedMedia, user, stamp, platform, interestHook, preEmotion,
     favCastId, review, isRewatch, isPrivate, getWatchedAtDate, createLog, router,
+    selectedSeason, selectedEpisodeId, selectedEpisodeSeason,
   ]);
 
   const handlePostCheckinSubmit = useCallback(async () => {
@@ -317,6 +338,17 @@ export default function LogSheet() {
         {step === 3 && selectedMedia && (
           <Step3LogForm
             media={selectedMedia}
+            selectedSeason={selectedSeason}
+            selectedEpisodeId={selectedEpisodeId}
+            onSeasonChange={(s) => {
+              setSelectedSeason(s);
+              setSelectedEpisodeId(null);
+              setSelectedEpisodeSeason(null);
+            }}
+            onEpisodeChange={(epId, epSeason) => {
+              setSelectedEpisodeId(epId);
+              setSelectedEpisodeSeason(epSeason);
+            }}
             stamp={stamp}               onStampChange={setStamp}
             platform={platform}         onPlatformChange={setPlatform}
             interestHook={interestHook} onInterestHookChange={setInterestHook}
@@ -505,6 +537,12 @@ function Step2PreMood({
 
 interface Step3Props {
   media:                SelectedMedia;
+  // Episode picker (series only)
+  selectedSeason:       number | null;
+  selectedEpisodeId:    string | null;
+  onSeasonChange:       (s: number | null) => void;
+  onEpisodeChange:      (episodeId: string | null, seasonNumber: number | null) => void;
+  // Log fields
   stamp:                StampKey | null;
   onStampChange:        (s: StampKey) => void;
   platform:             PlatformKey | null;
@@ -528,10 +566,11 @@ interface Step3Props {
 }
 
 function Step3LogForm(p: Step3Props) {
-  const { data: mediaDetail } = useMediaDetail(
+  const { data: mediaDetail, isLoading: isDetailLoading } = useMediaDetail(
     p.media.id, p.media.tmdbId, p.media.mediaType
   );
-  const cast: CastMember[] = mediaDetail?.cast ?? [];
+  const cast:            CastMember[] = mediaDetail?.cast ?? [];
+  const numberOfSeasons: number | null = mediaDetail?.media.numberOfSeasons ?? null;
 
   return (
     <ScrollView style={styles.stepWrap} showsVerticalScrollIndicator={false}>
@@ -556,6 +595,30 @@ function Step3LogForm(p: Step3Props) {
           </View>
         </View>
       </View>
+
+      {/* Episode Picker — series only */}
+      {p.media.mediaType === "series" && (
+        isDetailLoading ? (
+          // Show skeleton while detail is loading so the user knows it's coming
+          <View style={styles.epLoadingWrap}>
+            <Text style={styles.formLabel}>What did you watch?</Text>
+            <ActivityIndicator
+              size="small"
+              color={Colors.accent}
+              style={styles.epLoadingSpinner}
+            />
+          </View>
+        ) : numberOfSeasons != null && numberOfSeasons > 0 ? (
+          <EpisodePicker
+            tmdbId={p.media.tmdbId}
+            numberOfSeasons={numberOfSeasons}
+            selectedSeason={p.selectedSeason}
+            selectedEpisodeId={p.selectedEpisodeId}
+            onSeasonChange={p.onSeasonChange}
+            onEpisodeChange={p.onEpisodeChange}
+          />
+        ) : null
+      )}
 
       {/* Reaction Stamp */}
       <FormSection label="How was it?">
@@ -774,6 +837,165 @@ function Step3LogForm(p: Step3Props) {
 
       <View style={{ height: 40 }} />
     </ScrollView>
+  );
+}
+
+// ============================================================
+// Episode Picker
+// ============================================================
+
+interface EpisodePickerProps {
+  tmdbId:           number;
+  numberOfSeasons:  number;
+  selectedSeason:   number | null;
+  selectedEpisodeId: string | null;
+  onSeasonChange:   (s: number | null) => void;
+  onEpisodeChange:  (episodeId: string | null, seasonNumber: number | null) => void;
+}
+
+function EpisodePicker(p: EpisodePickerProps) {
+  const seasons = Array.from({ length: p.numberOfSeasons }, (_, i) => i + 1);
+
+  const { data: episodes = [], isLoading, isError, refetch } = useSeasonEpisodes(
+    p.tmdbId,
+    "series",
+    p.selectedSeason
+  );
+
+  return (
+    <View style={styles.epPickerWrap}>
+      <Text style={styles.formLabel}>What did you watch?</Text>
+
+      {/* Season pill row */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.epSeasonScroll}
+        contentContainerStyle={styles.epSeasonRow}
+      >
+        {/* Whole Series pill */}
+        <TouchableOpacity
+          style={[
+            styles.epSeasonPill,
+            p.selectedSeason === null && styles.epSeasonPillActive,
+          ]}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            p.onSeasonChange(null);
+            p.onEpisodeChange(null, null);
+          }}
+          activeOpacity={0.8}
+        >
+          <Text style={[
+            styles.epSeasonPillText,
+            p.selectedSeason === null && styles.epSeasonPillTextActive,
+          ]}>
+            Whole Series
+          </Text>
+        </TouchableOpacity>
+
+        {/* Season pills */}
+        {seasons.map((s) => (
+          <TouchableOpacity
+            key={s}
+            style={[
+              styles.epSeasonPill,
+              p.selectedSeason === s && styles.epSeasonPillActive,
+            ]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              p.onSeasonChange(s);
+              p.onEpisodeChange(null, null);
+            }}
+            activeOpacity={0.8}
+          >
+            <Text style={[
+              styles.epSeasonPillText,
+              p.selectedSeason === s && styles.epSeasonPillTextActive,
+            ]}>
+              S{s}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {/* Episode list — only when a season is selected */}
+      {p.selectedSeason !== null && (
+        <View style={styles.epList}>
+          {isLoading ? (
+            // Loading skeleton
+            [0, 1, 2].map((i) => (
+              <View key={i} style={styles.epRowSkeleton} />
+            ))
+          ) : isError ? (
+            <TouchableOpacity style={styles.epErrorRow} onPress={() => refetch()}>
+              <Text style={styles.epErrorText}>Couldn't load episodes. Tap to retry.</Text>
+            </TouchableOpacity>
+          ) : (
+            <>
+              {/* Whole Season row */}
+              <TouchableOpacity
+                style={[
+                  styles.epRow,
+                  p.selectedEpisodeId === null && styles.epRowActive,
+                ]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  p.onEpisodeChange(null, null);
+                }}
+                activeOpacity={0.8}
+              >
+                <View style={styles.epNumBadge}>
+                  <Text style={styles.epNumText}>All</Text>
+                </View>
+                <Text style={[
+                  styles.epTitle,
+                  p.selectedEpisodeId === null && styles.epTitleActive,
+                ]}>
+                  Whole Season
+                </Text>
+              </TouchableOpacity>
+
+              {/* Individual episodes */}
+              {episodes.length === 0 ? (
+                <View style={styles.epEmptyRow}>
+                  <Text style={styles.epEmptyText}>No episodes available</Text>
+                </View>
+              ) : (
+                episodes.map((ep) => {
+                  const active = p.selectedEpisodeId === ep.id;
+                  return (
+                    <TouchableOpacity
+                      key={ep.id}
+                      style={[styles.epRow, active && styles.epRowActive]}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        p.onEpisodeChange(ep.id, ep.seasonNumber);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <View style={[styles.epNumBadge, active && styles.epNumBadgeActive]}>
+                        <Text style={[styles.epNumText, active && styles.epNumTextActive]}>
+                          E{ep.episodeNumber}
+                        </Text>
+                      </View>
+                      <View style={styles.epInfo}>
+                        <Text style={[styles.epTitle, active && styles.epTitleActive]} numberOfLines={1}>
+                          {ep.title ?? `Episode ${ep.episodeNumber}`}
+                        </Text>
+                        {ep.airDate && (
+                          <Text style={styles.epMeta}>{ep.airDate}</Text>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </>
+          )}
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -1117,6 +1339,51 @@ const styles = StyleSheet.create({
   submitBtn:      { borderRadius: 16, overflow: "hidden", marginTop: 24 },
   submitGradient: { alignItems: "center", justifyContent: "center", paddingVertical: 15 },
   submitText:     { color: "#fff", fontSize: 16, fontWeight: "700", letterSpacing: 0.3 },
+
+  // Episode picker
+  epLoadingWrap:       { paddingTop: 20, gap: 10 },
+  epLoadingSpinner:    { marginTop: 8 },
+  epPickerWrap:        { paddingTop: 20, gap: 10 },
+  epSeasonScroll:      { marginHorizontal: -20 },
+  epSeasonRow:         { flexDirection: "row", gap: 8, paddingHorizontal: 20, paddingBottom: 4 },
+  epSeasonPill: {
+    paddingHorizontal: 14, paddingVertical: 7,
+    borderRadius: 20, backgroundColor: Colors.surface,
+    borderWidth: 1, borderColor: Colors.border,
+  },
+  epSeasonPillActive:  { backgroundColor: Colors.accentDim, borderColor: Colors.accent },
+  epSeasonPillText:    { color: Colors.textSecondary, fontSize: 13, fontWeight: "600" },
+  epSeasonPillTextActive: { color: Colors.accent },
+  epList:              { gap: 2, marginTop: 4 },
+  epRowSkeleton: {
+    height: 48, borderRadius: 10,
+    backgroundColor: Colors.surface, marginBottom: 4,
+  },
+  epErrorRow: {
+    paddingVertical: 14, alignItems: "center",
+    backgroundColor: Colors.surface, borderRadius: 10,
+  },
+  epErrorText:         { color: Colors.textMuted, fontSize: 13 },
+  epEmptyRow:          { paddingVertical: 14, alignItems: "center" },
+  epEmptyText:         { color: Colors.textMuted, fontSize: 13 },
+  epRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingHorizontal: 12, paddingVertical: 11,
+    borderRadius: 10, borderWidth: 1,
+    borderColor: Colors.border, backgroundColor: Colors.surface,
+  },
+  epRowActive:         { borderColor: Colors.accent, backgroundColor: Colors.accentDim },
+  epNumBadge: {
+    width: 36, height: 24, borderRadius: 6,
+    backgroundColor: Colors.glass, alignItems: "center", justifyContent: "center",
+  },
+  epNumBadgeActive:    { backgroundColor: Colors.accent + "33" },
+  epNumText:           { color: Colors.textMuted, fontSize: 11, fontWeight: "700" },
+  epNumTextActive:     { color: Colors.accent },
+  epInfo:              { flex: 1 },
+  epTitle:             { color: Colors.textSecondary, fontSize: 13, fontWeight: "500" },
+  epTitleActive:       { color: Colors.text, fontWeight: "600" },
+  epMeta:              { color: Colors.textMuted, fontSize: 11, marginTop: 2 },
 
   // Post check-in
   postCheckin: {

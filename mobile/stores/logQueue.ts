@@ -24,6 +24,7 @@ export interface QueuedLog {
   userId:             string;
   mediaId:            string;
   episodeId?:         string;
+  seasonNumber?:      number;
   logType:            "movie" | "series_episode" | "series_season" | "series_full";
   watchedAt:          string;  // ISO date string
   rating?:            number;
@@ -99,7 +100,8 @@ export const useLogQueue = create<LogQueueState>()(
             const { error } = await supabase.from("logs").insert({
               user_id:               log.userId,
               media_id:              log.mediaId,
-              episode_id:            log.episodeId ?? null,
+              episode_id:            log.episodeId   ?? null,
+              season_number:         log.seasonNumber ?? null,
               log_type:              log.logType,
               watched_at:            log.watchedAt,
               rating:                log.rating ?? null,

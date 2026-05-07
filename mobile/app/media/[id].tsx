@@ -29,10 +29,9 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { WebView } from "react-native-webview";
+import * as WebBrowser from "expo-web-browser";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
-import Modal from "react-native-modal";
 
 import { Colors, Gradients } from "@/constants/colors";
 import { useMediaDetail, type CastMember, type WatchProvider } from "@/hooks/useMediaDetail";
@@ -82,12 +81,18 @@ export default function MediaDetailScreen() {
   const alreadyLogged  = (logs ?? []).some((l) => l.mediaId === id);
 
   const [synopsisExpanded, setSynopsisExpanded] = useState(false);
-  const [trailerVisible,   setTrailerVisible]   = useState(false);
   const [expandedSeason,   setExpandedSeason]   = useState<number | null>(null);
   const [selectedHook,     setSelectedHook]     = useState<InterestHookKey | null>(
     (presetHook as InterestHookKey) ?? null
   );
 
+  // Derive safe values from data (may be undefined until loaded)
+  const media          = data?.media;
+  const cast           = data?.cast           ?? [];
+  const trailer        = data?.trailer        ?? null;
+  const watchProviders = data?.watchProviders ?? { flatrate: [], rent: [], buy: [] };
+
+  // All hooks must be declared before any early return
   const handleLog = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     router.push({
@@ -101,11 +106,20 @@ export default function MediaDetailScreen() {
     });
   }, [id, mediaType, tmdbId, selectedHook, router]);
 
-  if (isLoading || !data) {
+  const openTrailer = useCallback(async () => {
+    if (!trailer) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await WebBrowser.openBrowserAsync(
+      `https://www.youtube.com/watch?v=${trailer.youtubeKey}`,
+      { presentationStyle: WebBrowser.WebBrowserPresentationStyle.FORM_SHEET }
+    );
+  }, [trailer]);
+
+  // Early return after all hooks
+  if (isLoading || !media) {
     return <DetailSkeleton insetTop={insets.top} />;
   }
 
-  const { media, cast, trailer, watchProviders } = data;
   const hasProviders =
     watchProviders.flatrate.length > 0 ||
     watchProviders.rent.length > 0 ||
@@ -113,37 +127,6 @@ export default function MediaDetailScreen() {
 
   return (
     <View style={styles.container}>
-      {/* ── Trailer modal ──────────────────────────────────── */}
-      <Modal
-        isVisible={trailerVisible}
-        onBackdropPress={() => setTrailerVisible(false)}
-        style={styles.trailerModal}
-        backdropOpacity={0.9}
-        useNativeDriver
-      >
-        <View style={styles.trailerContainer}>
-          {trailer ? (
-            <WebView
-              source={{ uri: `https://www.youtube.com/embed/${trailer.youtubeKey}?autoplay=1&playsinline=1` }}
-              style={styles.webview}
-              allowsInlineMediaPlayback
-              mediaPlaybackRequiresUserAction={false}
-              javaScriptEnabled
-            />
-          ) : (
-            <View style={styles.noTrailer}>
-              <Text style={styles.noTrailerText}>No trailer available</Text>
-            </View>
-          )}
-          <TouchableOpacity
-            style={[styles.closeTrailer, { top: 12 + insets.top }]}
-            onPress={() => setTrailerVisible(false)}
-          >
-            <Ionicons name="close-circle" size={32} color="#fff" />
-          </TouchableOpacity>
-        </View>
-      </Modal>
-
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={{ paddingBottom: 120 + insets.bottom }}
@@ -176,10 +159,7 @@ export default function MediaDetailScreen() {
           {trailer && (
             <TouchableOpacity
               style={styles.trailerBtn}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setTrailerVisible(true);
-              }}
+              onPress={openTrailer}
               activeOpacity={0.8}
             >
               <View style={styles.trailerBtnInner}>
@@ -795,27 +775,6 @@ const styles = StyleSheet.create({
   },
   logBtnText: {
     color: "#fff", fontSize: 16, fontWeight: "700", letterSpacing: 0.3,
-  },
-
-  // Trailer modal
-  trailerModal:     { margin: 0, justifyContent: "center" },
-  trailerContainer: {
-    backgroundColor: "#000",
-    aspectRatio:     16 / 9,
-    marginHorizontal: 0,
-    position: "relative",
-  },
-  webview:   { flex: 1 },
-  closeTrailer: {
-    position: "absolute",
-    right:    12,
-    zIndex:   10,
-  },
-  noTrailer: {
-    flex: 1, alignItems: "center", justifyContent: "center",
-  },
-  noTrailerText: {
-    color: Colors.textSecondary, fontSize: 14,
   },
 
   // Skeleton
