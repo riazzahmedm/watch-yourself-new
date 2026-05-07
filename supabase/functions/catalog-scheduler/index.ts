@@ -14,14 +14,39 @@
 // ============================================================
 
 import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
+import { getServiceClient } from "../_shared/supabase.ts";
 import { MOOD_RULES } from "../_shared/enrichment.ts";
 
-const PAGES_PER_MOOD = 10;  // cron imports up to this page; skips already-done
-const MOOD_SLUGS     = MOOD_RULES.map((r) => r.slug);
+// Pages imported per mood per daily run.
+// 5 pages × ~20 movies = ~100 new movies per mood per day.
+const PAGES_PER_RUN = 5;
+const MOOD_SLUGS    = MOOD_RULES.map((r) => r.slug);
+
+// ---- High-water-mark helpers --------------------------------
+
+// deno-lint-ignore no-explicit-any
+type AnyClient = any;
+
+async function getHWM(supabase: AnyClient): Promise<number> {
+  const { data, error } = await supabase.rpc("get_catalog_high_water");
+  if (error) {
+    console.warn("[catalog-scheduler] Could not read HWM, defaulting to 0:", error.message);
+    return 0;
+  }
+  return typeof data === "number" ? data : 0;
+}
+
+async function setHWM(supabase: AnyClient, page: number): Promise<void> {
+  const { error } = await supabase.rpc("set_catalog_high_water", { p_page: page });
+  if (error) console.warn("[catalog-scheduler] Could not update HWM:", error.message);
+}
 
 // ---- Core: import one mood ----------------------------------
 
-async function importMood(slug: string): Promise<Record<string, unknown>> {
+async function importMood(
+  slug: string,
+  startPage: number,
+): Promise<Record<string, unknown>> {
   const adminKey  = Deno.env.get("IMPORT_ADMIN_KEY") ?? "";
   const baseUrl   = Deno.env.get("SUPABASE_URL") ?? "";
   const importUrl = `${baseUrl}/functions/v1/import-catalog`;
@@ -31,7 +56,7 @@ async function importMood(slug: string): Promise<Record<string, unknown>> {
   const res = await fetch(importUrl, {
     method:  "POST",
     headers: { "X-Admin-Key": adminKey, "Content-Type": "application/json" },
-    body:    JSON.stringify({ moodSlug: slug, pages: PAGES_PER_MOOD }),
+    body:    JSON.stringify({ moodSlug: slug, startPage, pages: PAGES_PER_RUN }),
   });
 
   if (!res.ok) throw new Error(`import-catalog HTTP ${res.status}: ${await res.text()}`);
@@ -59,29 +84,46 @@ Deno.serve(async (req: Request) => {
   const moodSlug = url.searchParams.get("moodSlug") ?? undefined;
   const moods    = moodSlug ? [moodSlug] : MOOD_SLUGS;
 
-  console.log(`[catalog-scheduler] Starting import — moods: ${moods.join(", ")}`);
+  const supabase  = getServiceClient();
+  const hwm       = await getHWM(supabase);
+  const startPage = hwm + 1;
+  const endPage   = hwm + PAGES_PER_RUN;   // inclusive
+
+  console.log(
+    `[catalog-scheduler] Starting import — moods: ${moods.join(", ")} ` +
+    `pages ${startPage}–${endPage} (HWM was ${hwm})`
+  );
 
   // Run in background so HTTP response is immediate (avoid gateway timeout)
   (async () => {
     const results: Record<string, unknown> = {};
     for (const slug of moods) {
       try {
-        results[slug] = await importMood(slug);
+        results[slug] = await importMood(slug, startPage);
         console.log(`[catalog-scheduler] ${slug}:`, results[slug]);
       } catch (err) {
         console.error(`[catalog-scheduler] ${slug} failed:`, err);
         results[slug] = { error: String(err) };
       }
     }
-    console.log("[catalog-scheduler] Import complete:", JSON.stringify(results));
+
+    // Advance HWM after all moods have run
+    await setHWM(supabase, endPage);
+    console.log(
+      "[catalog-scheduler] Import complete, HWM advanced to",
+      endPage,
+      JSON.stringify(results)
+    );
   })();
 
   return jsonResponse(
     {
-      message: "Catalog refresh triggered",
+      message:   "Catalog refresh triggered",
       moods,
-      pages:   PAGES_PER_MOOD,
-      note:    "Running in background — check Supabase function logs for progress",
+      startPage,
+      endPage,
+      pagesPerRun: PAGES_PER_RUN,
+      note:      "Running in background — check Supabase function logs for progress",
     },
     202
   );

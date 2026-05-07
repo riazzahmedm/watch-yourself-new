@@ -2,18 +2,17 @@
 // Profile Tab — Taste DNA card + stats + settings
 // ============================================================
 
-import { useRef } from "react";
+import { useRef, useEffect } from "react";
 import {
   View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, Alert, Share,
+  TouchableOpacity, Alert, ActivityIndicator,
 } from "react-native";
-import { Image } from "expo-image";
 import ViewShot from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
 import * as Haptics from "expo-haptics";
 
 import { Colors } from "@/constants/colors";
-import { useTasteDna, useComputeTasteDna } from "@/hooks/useTasteDna";
+import { useTasteDna, useComputeTasteDna, isDnaStale } from "@/hooks/useTasteDna";
 import { useLogs } from "@/hooks/useLogs";
 import { useAuthStore } from "@/stores/auth";
 
@@ -31,9 +30,25 @@ export default function ProfileScreen() {
   const computeDna          = useComputeTasteDna();
   const cardRef             = useRef<ViewShot>(null);
 
-  const totalLogged  = dna?.total_logged ?? 0;
-  const isDisplayable = totalLogged >= 10;
-  const logsNeeded   = Math.max(10 - totalLogged, 0);
+  // Use actual log count — not the stale DB value — to break the circular dependency
+  // where total_logged=0 in DB would permanently lock the DNA screen.
+  const actualLogCount = logs?.length ?? 0;
+  const isDisplayable  = actualLogCount >= 10;
+  const logsNeeded     = Math.max(10 - actualLogCount, 0);
+
+  // Auto-trigger DNA computation when Profile opens:
+  //   - user has ≥10 logs, AND
+  //   - DNA has never been computed or is older than 24 hours
+  useEffect(() => {
+    if (
+      isDisplayable &&
+      isDnaStale(dna?.last_computed_at) &&
+      !computeDna.isPending
+    ) {
+      computeDna.mutate(undefined);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDisplayable, dna?.last_computed_at]);
 
   // ---- Share Taste DNA card --------------------------------
   const handleShare = async () => {
@@ -44,8 +59,6 @@ export default function ProfileScreen() {
       if (!uri) return;
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(uri, { mimeType: "image/png" });
-      } else {
-        await Share.share({ url: uri });
       }
     } catch {
       Alert.alert("Could not share", "Please try again.");
@@ -60,7 +73,6 @@ export default function ProfileScreen() {
   };
 
   const genreAffinities = (dna?.genre_affinities as Record<string, number> | null) ?? {};
-  const topGenres       = (dna?.twin_cache as unknown as { sharedGenres: string[] }[] | null);
   const twins           = (dna?.twin_cache as {
     userId: string; username: string; avatarUrl: string | null; matchScore: number;
   }[] | null) ?? [];
@@ -77,7 +89,7 @@ export default function ProfileScreen() {
           </View>
           <View>
             <Text style={styles.username}>{user?.email?.split("@")[0] ?? "You"}</Text>
-            <Text style={styles.userSub}>{totalLogged} logged</Text>
+            <Text style={styles.userSub}>{actualLogCount} logged</Text>
           </View>
         </View>
         <TouchableOpacity onPress={signOut} style={styles.signOutBtn}>
@@ -86,7 +98,14 @@ export default function ProfileScreen() {
       </View>
 
       {/* ---- Taste DNA card --------------------------------- */}
-      {isDisplayable ? (
+      {isDisplayable && computeDna.isPending && !dna?.genre_affinities ? (
+        // ---- Computing for the first time -------------------
+        <View style={styles.dnaLocked}>
+          <ActivityIndicator size="large" color={Colors.accent} />
+          <Text style={styles.dnaLockedTitle}>Building your Taste DNA…</Text>
+          <Text style={styles.dnaLockedSub}>Analysing your {actualLogCount} logs</Text>
+        </View>
+      ) : isDisplayable ? (
         <>
           <ViewShot ref={cardRef} options={{ format: "png", quality: 1 }}>
             <View style={styles.dnaCard}>
@@ -121,7 +140,7 @@ export default function ProfileScreen() {
               {/* Stats footer */}
               <View style={styles.dnaFooter}>
                 <Text style={styles.dnaFooterText}>
-                  Based on {totalLogged} logs · Watch Yourself
+                  Based on {actualLogCount} logs · Watch Yourself
                 </Text>
               </View>
             </View>
@@ -132,7 +151,7 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </>
       ) : (
-        // ---- Not enough logs yet ----------------------------
+        // ---- Not enough logs yet (< 10 logs) ----------------
         <View style={styles.dnaLocked}>
           <Text style={styles.dnaLockedEmoji}>🔒</Text>
           <Text style={styles.dnaLockedTitle}>Taste DNA unlocks soon</Text>
@@ -141,10 +160,10 @@ export default function ProfileScreen() {
           </Text>
           <View style={styles.progressBar}>
             <View
-              style={[styles.progressFill, { width: `${(totalLogged / 10) * 100}%` }]}
+              style={[styles.progressFill, { width: `${(actualLogCount / 10) * 100}%` }]}
             />
           </View>
-          <Text style={styles.progressLabel}>{totalLogged} / 10</Text>
+          <Text style={styles.progressLabel}>{actualLogCount} / 10</Text>
         </View>
       )}
 
@@ -171,7 +190,7 @@ export default function ProfileScreen() {
       )}
 
       {/* ---- Recompute button ------------------------------- */}
-      {totalLogged >= 10 && (
+      {actualLogCount >= 10 && (
         <TouchableOpacity
           style={styles.recomputeBtn}
           onPress={handleRecompute}

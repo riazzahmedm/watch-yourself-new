@@ -39,12 +39,20 @@ export function useTasteDna() {
         .eq("user_id", user!.id)
         .single();
 
-      if (error) throw error;
-      return data;
+      // PGRST116 = no rows — new user whose signup trigger didn't fire yet
+      if (error && error.code !== "PGRST116") throw error;
+      return data ?? null;
     },
     enabled:   !!user,
     staleTime: 30 * 60 * 1000,  // 30 min
   });
+}
+
+/** True when DNA has never been computed OR is older than 24 hours */
+export function isDnaStale(lastComputedAt: string | null | undefined): boolean {
+  if (!lastComputedAt) return true;
+  const age = Date.now() - new Date(lastComputedAt).getTime();
+  return age > 24 * 60 * 60 * 1000;
 }
 
 // ---- Trigger recomputation -----------------------------------

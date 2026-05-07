@@ -40,12 +40,14 @@ Deno.serve(async (req: Request) => {
   }
 
   let targetMoodSlug: string | undefined;
+  let startPage: number;
   let pages: number;
   let dryRun: boolean;
 
   try {
     const body = await req.json().catch(() => ({}));
     targetMoodSlug = body.moodSlug?.trim() || undefined;
+    startPage      = Math.max(1, Number(body.startPage ?? 1));
     pages          = Math.min(Number(body.pages ?? DEFAULT_PAGES), 20);
     dryRun         = Boolean(body.dryRun ?? false);
   } catch {
@@ -80,7 +82,7 @@ Deno.serve(async (req: Request) => {
       continue;
     }
 
-    for (let page = 1; page <= pages; page++) {
+    for (let page = startPage; page < startPage + pages; page++) {
       // Check if already imported
       const { data: alreadyImported } = await supabase
         .from("catalog_import_log")

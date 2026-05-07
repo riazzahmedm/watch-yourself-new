@@ -1,7 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/lib/supabase";
+import { supabase, callEdgeFunction } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth";
 import { useLogQueue } from "@/stores/logQueue";
+import { isDnaStale } from "@/hooks/useTasteDna";
 
 export interface LogEntry {
   id:                  string;
@@ -148,9 +149,29 @@ export function useCreateLog() {
       });
     },
 
-    onSuccess: () => {
+    onSuccess: async () => {
       // Invalidate log list so it refreshes
       queryClient.invalidateQueries({ queryKey: ["logs", user?.id] });
+
+      // Auto-recompute Taste DNA when the user crosses the 10-log threshold
+      // or when their existing DNA is stale. Fire-and-forget — profile will
+      // refresh via query invalidation on its own schedule.
+      try {
+        const dna = queryClient.getQueryData<{ last_computed_at?: string | null } | null>(
+          ["taste-dna", user?.id]
+        );
+        const currentLogs = queryClient.getQueryData<{ id: string }[]>(
+          ["logs", user?.id]
+        );
+        const logCount = (currentLogs?.length ?? 0) + 1; // +1 for the log just added
+
+        if (logCount >= 10 && isDnaStale(dna?.last_computed_at)) {
+          await callEdgeFunction("generate-taste-dna", {});
+          queryClient.invalidateQueries({ queryKey: ["taste-dna", user?.id] });
+        }
+      } catch {
+        // DNA recompute is best-effort — never block the log success path
+      }
     },
   });
 }
