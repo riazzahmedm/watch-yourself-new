@@ -4,19 +4,29 @@ import { useAuthStore } from "@/stores/auth";
 import { useLogQueue } from "@/stores/logQueue";
 
 export interface LogEntry {
-  id:         string;
-  mediaId:    string;
-  episodeId:  string | null;
-  logType:    "movie" | "series_episode" | "series_season" | "series_full";
-  watchedAt:  string;
-  rating:     number | null;
-  review:     string | null;
-  moodTagId:  string | null;
-  isRewatch:  boolean;
-  isPrivate:  boolean;
-  createdAt:  string;
+  id:                  string;
+  mediaId:             string;
+  episodeId:           string | null;
+  logType:             "movie" | "series_episode" | "series_season" | "series_full";
+  watchedAt:           string;
+  rating:              number | null;
+  reactionStamp:       string | null;
+  review:              string | null;
+  moodTagId:           string | null;
+  watchPlatform:       string | null;
+  interestHook:        string | null;
+  preWatchEmotionId:   string | null;
+  preWatchAnswer:      string | null;
+  postWatchEmotionId:  string | null;
+  postEnergyLevel:     number | null;
+  postMindLevel:       number | null;
+  favoriteCastId:      string | null;
+  isRewatch:           boolean;
+  isPrivate:           boolean;
+  createdAt:           string;
   media: {
     id:          string;
+    tmdbId:      number;
     title:       string;
     posterPath:  string | null;
     releaseYear: number | null;
@@ -39,9 +49,13 @@ export function useLogs(limit = 50) {
         .from("logs")
         .select(`
           id, media_id, episode_id, log_type, watched_at,
-          rating, review, mood_tag_id, is_rewatch, is_private, created_at,
+          rating, reaction_stamp, review, mood_tag_id,
+          watch_platform, interest_hook,
+          pre_watch_emotion_id, pre_watch_answer,
+          post_watch_emotion_id, post_energy_level, post_mind_level,
+          favorite_cast_id, is_rewatch, is_private, created_at,
           media:media_id (
-            id, title, poster_path, release_year, media_type, tmdb_rating, tmdb_genres
+            id, tmdb_id, title, poster_path, release_year, media_type, tmdb_rating, tmdb_genres
           ),
           mood_tag:mood_tag_id (slug, emoji, label)
         `)
@@ -66,44 +80,67 @@ export function useCreateLog() {
 
   return useMutation({
     mutationFn: async (input: {
-      mediaId:    string;
-      episodeId?: string;
-      logType:    LogEntry["logType"];
-      watchedAt:  string;
-      rating?:    number;
-      review?:    string;
-      moodTagId?: string;
-      isRewatch:  boolean;
-      isPrivate:  boolean;
-    }) => {
-      const { error } = await supabase.from("logs").insert({
-        user_id:     user!.id,
-        media_id:    input.mediaId,
-        episode_id:  input.episodeId ?? null,
-        log_type:    input.logType,
-        watched_at:  input.watchedAt,
-        rating:      input.rating ?? null,
-        review:      input.review ?? null,
-        mood_tag_id: input.moodTagId ?? null,
-        is_rewatch:  input.isRewatch,
-        is_private:  input.isPrivate,
-      });
+      mediaId:             string;
+      episodeId?:          string;
+      logType:             LogEntry["logType"];
+      watchedAt:           string;
+      rating?:             number;
+      reactionStamp?:      string;
+      review?:             string;
+      moodTagId?:          string;
+      watchPlatform?:      string;
+      interestHook?:       string;
+      preWatchEmotionId?:  string;
+      preWatchAnswer?:     string;
+      favoriteCastId?:     string;
+      isRewatch:           boolean;
+      isPrivate:           boolean;
+    }): Promise<string> => {
+      const { data, error } = await supabase
+        .from("logs")
+        .insert({
+          user_id:               user!.id,
+          media_id:              input.mediaId,
+          episode_id:            input.episodeId ?? null,
+          log_type:              input.logType,
+          watched_at:            input.watchedAt,
+          rating:                input.rating ?? null,
+          reaction_stamp:        input.reactionStamp ?? null,
+          review:                input.review ?? null,
+          mood_tag_id:           input.moodTagId ?? null,
+          watch_platform:        input.watchPlatform ?? null,
+          interest_hook:         input.interestHook ?? null,
+          pre_watch_emotion_id:  input.preWatchEmotionId ?? null,
+          pre_watch_answer:      input.preWatchAnswer ?? null,
+          favorite_cast_id:      input.favoriteCastId ?? null,
+          is_rewatch:            input.isRewatch,
+          is_private:            input.isPrivate,
+        })
+        .select("id")
+        .single();
       if (error) throw error;
+      return data.id as string;
     },
 
     onError: (_err, input) => {
       // Supabase failed (offline?) → push to queue
       enqueue({
-        userId:    user!.id,
-        mediaId:   input.mediaId,
-        episodeId: input.episodeId,
-        logType:   input.logType,
-        watchedAt: input.watchedAt,
-        rating:    input.rating,
-        review:    input.review,
-        moodTagId: input.moodTagId,
-        isRewatch: input.isRewatch,
-        isPrivate: input.isPrivate,
+        userId:            user!.id,
+        mediaId:           input.mediaId,
+        episodeId:         input.episodeId,
+        logType:           input.logType,
+        watchedAt:         input.watchedAt,
+        rating:            input.rating,
+        reactionStamp:     input.reactionStamp,
+        review:            input.review,
+        moodTagId:         input.moodTagId,
+        watchPlatform:     input.watchPlatform,
+        interestHook:      input.interestHook,
+        preWatchEmotionId: input.preWatchEmotionId,
+        preWatchAnswer:    input.preWatchAnswer,
+        favoriteCastId:    input.favoriteCastId,
+        isRewatch:         input.isRewatch,
+        isPrivate:         input.isPrivate,
       });
     },
 
@@ -140,19 +177,29 @@ function mapLog(raw: Record<string, unknown>): LogEntry {
   const media = raw.media as Record<string, unknown> | null;
   const mood  = raw.mood_tag as Record<string, unknown> | null;
   return {
-    id:        raw.id as string,
-    mediaId:   raw.media_id as string,
-    episodeId: raw.episode_id as string | null,
-    logType:   raw.log_type as LogEntry["logType"],
-    watchedAt: raw.watched_at as string,
-    rating:    raw.rating as number | null,
-    review:    raw.review as string | null,
-    moodTagId: raw.mood_tag_id as string | null,
-    isRewatch: raw.is_rewatch as boolean,
-    isPrivate: raw.is_private as boolean,
-    createdAt: raw.created_at as string,
+    id:                 raw.id as string,
+    mediaId:            raw.media_id as string,
+    episodeId:          raw.episode_id as string | null,
+    logType:            raw.log_type as LogEntry["logType"],
+    watchedAt:          raw.watched_at as string,
+    rating:             raw.rating as number | null,
+    reactionStamp:      raw.reaction_stamp as string | null,
+    review:             raw.review as string | null,
+    moodTagId:          raw.mood_tag_id as string | null,
+    watchPlatform:      raw.watch_platform as string | null,
+    interestHook:       raw.interest_hook as string | null,
+    preWatchEmotionId:  raw.pre_watch_emotion_id as string | null,
+    preWatchAnswer:     raw.pre_watch_answer as string | null,
+    postWatchEmotionId: raw.post_watch_emotion_id as string | null,
+    postEnergyLevel:    raw.post_energy_level as number | null,
+    postMindLevel:      raw.post_mind_level as number | null,
+    favoriteCastId:     raw.favorite_cast_id as string | null,
+    isRewatch:          raw.is_rewatch as boolean,
+    isPrivate:          raw.is_private as boolean,
+    createdAt:          raw.created_at as string,
     media: {
       id:          media?.id as string,
+      tmdbId:      media?.tmdb_id as number,
       title:       media?.title as string,
       posterPath:  media?.poster_path as string | null,
       releaseYear: media?.release_year as number | null,

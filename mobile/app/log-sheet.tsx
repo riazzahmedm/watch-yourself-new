@@ -1,479 +1,1159 @@
 // ============================================================
 // Log Sheet — app/log-sheet.tsx
-// The most-used screen in the app. Opens as a modal.
-// Handles: search → select media → fill details → submit
-// Offline-safe: if Supabase fails, entry queued in MMKV.
+// 4-step modal flow:
+//   Step 1: Search (or skipped if pre-selected from media detail)
+//   Step 2: Pre-watch mood check-in (evocative question)
+//   Step 3: Log form (stamp · platform · cast · review · date)
+//   Step 4: Post-watch check-in (non-blocking overlay after submit)
 // ============================================================
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
-  Alert,
-  ActivityIndicator,
+  StyleSheet,
+  Dimensions,
+  Platform,
+  Animated,
+  KeyboardAvoidingView,
 } from "react-native";
-import { useRouter } from "expo-router";
-import BottomSheet, { BottomSheetScrollView } from "@gorhom/bottom-sheet";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
+import { toast } from "sonner-native";
 
-import { Colors } from "@/constants/colors";
-import { MOODS } from "@/constants/moods";
-import { MoodChip } from "@/components/MoodChip";
-import { StarRating } from "@/components/StarRating";
-import { useSearch } from "@/hooks/useSearch";
+import { Colors, Gradients } from "@/constants/colors";
+import { useSearch, type SearchResult } from "@/hooks/useSearch";
 import { useCreateLog } from "@/hooks/useLogs";
-import { supabase, callEdgeFunction } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth";
+import { supabase } from "@/lib/supabase";
+import {
+  getRandomMoodQuestion,
+  type MoodQuestion,
+  type MoodQuestionOption,
+} from "@/hooks/useMoodQuestion";
+import { useMediaDetail, type CastMember } from "@/hooks/useMediaDetail";
+import {
+  ENERGY_OPTIONS,
+  MIND_OPTIONS,
+  useResolveEmotion,
+} from "@/hooks/useResolveEmotion";
 
-type Step = "search" | "form";
+const { width: SW } = Dimensions.get("window");
+const BLURHASH = "LGF5?xYk^6#M@-5c,1J5@[or[Q6.";
+
+// ---- Constants ----------------------------------------------
+
+const REACTION_STAMPS = [
+  { key: "meh",          label: "Meh",          emoji: "😑", color: "#44445a", large: false },
+  { key: "decent",       label: "Decent",       emoji: "👌", color: "#6ea8fe", large: false },
+  { key: "liked_it",     label: "Liked It",     emoji: "😊", color: "#86efac", large: false },
+  { key: "loved_it",     label: "Loved It",     emoji: "❤️",  color: "#f87171", large: false },
+  { key: "mind_shifted", label: "Mind-Shifted", emoji: "🤯", color: "#c084fc", large: false },
+  { key: "life_film",    label: "Life Film",    emoji: "🎖️", color: "#facc15", large: true  },
+] as const;
+
+type StampKey = typeof REACTION_STAMPS[number]["key"];
+
+const PLATFORMS = [
+  { key: "netflix",     label: "Netflix",    emoji: "🎬" },
+  { key: "prime",       label: "Prime",      emoji: "📦" },
+  { key: "disney_plus", label: "Disney+",    emoji: "🏰" },
+  { key: "apple_tv",    label: "Apple TV+",  emoji: "🍎" },
+  { key: "hbo_max",     label: "HBO Max",    emoji: "📺" },
+  { key: "hulu",        label: "Hulu",       emoji: "🟢" },
+  { key: "youtube",     label: "YouTube",    emoji: "▶️"  },
+  { key: "cinema",      label: "Cinema",     emoji: "🎞️" },
+  { key: "tv",          label: "Live TV",    emoji: "📡" },
+  { key: "other",       label: "Other",      emoji: "🔗" },
+  { key: "unofficial",  label: "Unofficial", emoji: "👁️" },
+] as const;
+
+type PlatformKey = typeof PLATFORMS[number]["key"];
+
+const INTEREST_HOOKS = [
+  { key: "cast",      label: "Cast",      emoji: "🎭" },
+  { key: "premise",   label: "Premise",   emoji: "💡" },
+  { key: "creator",   label: "Creator",   emoji: "🎬" },
+  { key: "studio",    label: "Studio",    emoji: "🏛️" },
+  { key: "franchise", label: "Franchise", emoji: "🌌" },
+  { key: "other",     label: "Other",     emoji: "✨" },
+] as const;
+
+type InterestHookKey = typeof INTEREST_HOOKS[number]["key"];
+
+type Step = 1 | 2 | 3;
+
+interface SelectedMedia {
+  id:          string;
+  tmdbId:      number;
+  title:       string;
+  posterUrl:   string | null;
+  releaseYear: number | null;
+  mediaType:   "movie" | "series";
+}
+
+// ============================================================
+// Root component
+// ============================================================
 
 export default function LogSheet() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user } = useAuthStore();
-  const createLog = useCreateLog();
+  const params = useLocalSearchParams<{
+    preSelectedMediaId?:   string;
+    preSelectedTmdbId?:    string;
+    preSelectedMediaType?: string;
+    interestHook?:         string;
+  }>();
 
-  const [step,       setStep]       = useState<Step>("search");
-  const [selectedMedia, setSelectedMedia] = useState<{
-    id: string; tmdbId: number; title: string; posterUrl: string | null;
-    mediaType: "movie" | "series";
+  const preSelected: SelectedMedia | null = params.preSelectedMediaId
+    ? {
+        id:          params.preSelectedMediaId,
+        tmdbId:      Number(params.preSelectedTmdbId ?? "0"),
+        title:       "",
+        posterUrl:   null,
+        releaseYear: null,
+        mediaType:   (params.preSelectedMediaType ?? "movie") as "movie" | "series",
+      }
+    : null;
+
+  const [step,          setStep]          = useState<Step>(preSelected ? 2 : 1);
+  const [selectedMedia, setSelectedMedia] = useState<SelectedMedia | null>(preSelected);
+  const [moodQuestion,  setMoodQuestion]  = useState<MoodQuestion>(() => getRandomMoodQuestion());
+  const [preEmotion,    setPreEmotion]    = useState<{
+    slug: string; questionId: string; answer: string;
   } | null>(null);
 
-  // Form state
-  const [rating,     setRating]     = useState<number | null>(null);
-  const [review,     setReview]     = useState("");
-  const [moodSlug,   setMoodSlug]   = useState<string | null>(null);
-  const [isRewatch,  setIsRewatch]  = useState(false);
-  const [isPrivate,  setIsPrivate]  = useState(false);
-  const [watchedAt,  setWatchedAt]  = useState(new Date().toISOString().split("T")[0]);
+  // Log form state
+  const [stamp,        setStamp]        = useState<StampKey | null>(null);
+  const [platform,     setPlatform]     = useState<PlatformKey | null>(null);
+  const [interestHook, setInterestHook] = useState<InterestHookKey | null>(
+    (params.interestHook as InterestHookKey) ?? null
+  );
+  const [favCastId,    setFavCastId]    = useState<string | null>(null);
+  const [review,       setReview]       = useState("");
+  const [watchedAt,    setWatchedAt]    = useState<"today" | "yesterday" | "other">("today");
+  const [customDate,   setCustomDate]   = useState("");
+  const [isRewatch,    setIsRewatch]    = useState(false);
+  const [isPrivate,    setIsPrivate]    = useState(false);
 
-  const { query, setQuery, results, isLoading: searchLoading } = useSearch();
+  // Post-watch check-in
+  const [showPostCheckin, setShowPostCheckin] = useState(false);
+  const [submittedLogId,  setSubmittedLogId]  = useState<string | null>(null);
+  const [energyLevel,     setEnergyLevel]     = useState<number | null>(null);
+  const [mindLevel,       setMindLevel]       = useState<number | null>(null);
 
-  // ---- Select a media item from search --------------------
-  const handleSelectMedia = useCallback(async (item: typeof results[0]) => {
-    Haptics.selectionAsync();
+  const createLog      = useCreateLog();
+  const resolveEmotion = useResolveEmotion();
+  const { user }       = useAuthStore();
 
-    // Ensure full detail is cached in our DB
-    try {
-      await callEdgeFunction("tmdb-detail", {
-        tmdbId:    item.tmdbId,
-        mediaType: item.mediaType,
+  // Fill in title/poster for pre-selected media
+  const { data: preDetail } = useMediaDetail(
+    preSelected?.id ?? null,
+    preSelected?.tmdbId ?? null,
+    preSelected?.mediaType ?? "movie"
+  );
+
+  useEffect(() => {
+    if (preDetail?.media && selectedMedia && !selectedMedia.title) {
+      setSelectedMedia({
+        id:          preDetail.media.id,
+        tmdbId:      preDetail.media.tmdbId,
+        title:       preDetail.media.title,
+        posterUrl:   preDetail.media.posterUrl,
+        releaseYear: preDetail.media.releaseYear,
+        mediaType:   preDetail.media.mediaType,
       });
-    } catch {
-      // Non-fatal — we proceed even if detail fetch fails
     }
+  }, [preDetail]);
 
+  const handleMediaSelect = useCallback((result: SearchResult) => {
     setSelectedMedia({
-      id:        item.id,
-      tmdbId:    item.tmdbId,
-      title:     item.title,
-      posterUrl: item.posterUrl,
-      mediaType: item.mediaType,
+      id:          result.id,
+      tmdbId:      result.tmdbId,
+      title:       result.title,
+      posterUrl:   result.posterUrl,
+      releaseYear: result.releaseYear,
+      mediaType:   result.mediaType,
     });
-    setStep("form");
+    setStep(2);
+    setMoodQuestion(getRandomMoodQuestion());
   }, []);
 
-  // ---- Submit log -----------------------------------------
+  const handlePreMoodSelect = useCallback(
+    (option: MoodQuestionOption) => {
+      setPreEmotion({
+        slug:       option.emotionSlug,
+        questionId: moodQuestion.id,
+        answer:     option.label,
+      });
+      setTimeout(() => setStep(3), 300);
+    },
+    [moodQuestion]
+  );
+
+  const getWatchedAtDate = useCallback((): string => {
+    if (watchedAt === "today") return new Date().toISOString().split("T")[0];
+    if (watchedAt === "yesterday") {
+      const d = new Date();
+      d.setDate(d.getDate() - 1);
+      return d.toISOString().split("T")[0];
+    }
+    return customDate || new Date().toISOString().split("T")[0];
+  }, [watchedAt, customDate]);
+
   const handleSubmit = useCallback(async () => {
     if (!selectedMedia || !user) return;
 
-    // Find moodTagId from slug
-    let moodTagId: string | undefined;
-    if (moodSlug) {
+    let preEmotionId: string | undefined;
+    if (preEmotion) {
       const { data } = await supabase
-        .from("mood_tags")
+        .from("emotions")
         .select("id")
-        .eq("slug", moodSlug)
+        .eq("slug", preEmotion.slug)
         .single();
-      moodTagId = data?.id;
+      preEmotionId = data?.id;
     }
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
     createLog.mutate(
       {
-        mediaId:   selectedMedia.id,
-        logType:   selectedMedia.mediaType === "movie" ? "movie" : "series_full",
-        watchedAt,
-        rating:    rating ?? undefined,
-        review:    review.trim() || undefined,
-        moodTagId,
+        mediaId:             selectedMedia.id,
+        logType:             selectedMedia.mediaType === "movie" ? "movie" : "series_full",
+        watchedAt:           getWatchedAtDate(),
+        reactionStamp:       stamp ?? undefined,
+        watchPlatform:       platform ?? undefined,
+        interestHook:        interestHook ?? undefined,
+        preWatchEmotionId:   preEmotionId,
+        preWatchAnswer:      preEmotion?.answer,
+        favoriteCastId:      favCastId ?? undefined,
+        review:              review.trim() || undefined,
         isRewatch,
         isPrivate,
       },
       {
-        onSuccess: () => router.back(),
-        onError:   () => {
-          // Queue handled inside useLogs — just close and show toast
-          Alert.alert(
-            "Saved offline",
-            "No connection. Your log is saved and will sync when you're back online."
-          );
+        onSuccess: (logId: string) => {
+          setSubmittedLogId(logId);
+          router.back();
+          // Show post-checkin after a brief delay
+          setTimeout(() => setShowPostCheckin(true), 400);
+        },
+        onError: () => {
+          toast.info("Saved offline — will sync when back online");
           router.back();
         },
       }
     );
-  }, [selectedMedia, user, moodSlug, rating, review, isRewatch, isPrivate, watchedAt, createLog, router]);
+  }, [
+    selectedMedia, user, stamp, platform, interestHook, preEmotion,
+    favCastId, review, isRewatch, isPrivate, getWatchedAtDate, createLog, router,
+  ]);
+
+  const handlePostCheckinSubmit = useCallback(async () => {
+    if (!submittedLogId || !energyLevel || !mindLevel) return;
+    try {
+      const result = await resolveEmotion.mutateAsync({
+        logId: submittedLogId,
+        energyLevel,
+        mindLevel,
+      });
+      toast.success(`You're feeling ${result.emotion.label} ${result.emotion.emoji}`);
+    } catch {
+      // Silently fail — post checkin is optional
+    }
+    setShowPostCheckin(false);
+  }, [submittedLogId, energyLevel, mindLevel, resolveEmotion]);
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      {/* ---- Header ---------------------------------------- */}
-      <View style={styles.header}>
-        <View style={styles.handle} />
-        <Text style={styles.headerTitle}>
-          {step === "search" ? "What did you watch?" : "Log it"}
-        </Text>
-        <TouchableOpacity onPress={() => router.back()} style={styles.closeBtn}>
-          <Text style={styles.closeBtnText}>✕</Text>
-        </TouchableOpacity>
-      </View>
-
-      {step === "search" ? (
-        // ---- Step 1: Search --------------------------------
-        <View style={styles.searchContainer}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search movies & series..."
-            placeholderTextColor={Colors.textMuted}
-            value={query}
-            onChangeText={setQuery}
-            autoFocus
-            returnKeyType="search"
-          />
-          {searchLoading && (
-            <ActivityIndicator style={styles.searchSpinner} color={Colors.accent} />
+    <>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        {/* Header */}
+        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+          {step > 1 ? (
+            <TouchableOpacity
+              onPress={() => setStep((s) => (s - 1) as Step)}
+              style={styles.headerSide}
+            >
+              <Ionicons name="chevron-back" size={22} color={Colors.text} />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.headerSide} />
           )}
-          <ScrollView keyboardShouldPersistTaps="handled">
-            {results.map((item) => (
-              <TouchableOpacity
-                key={item.tmdbId}
-                style={styles.searchResult}
-                onPress={() => handleSelectMedia(item)}
-                activeOpacity={0.8}
-              >
-                <Image
-                  source={{ uri: item.posterUrl ?? undefined }}
-                  style={styles.searchPoster}
-                  contentFit="cover"
-                />
-                <View style={styles.searchResultInfo}>
-                  <Text style={styles.searchResultTitle} numberOfLines={1}>
-                    {item.title}
-                  </Text>
-                  <Text style={styles.searchResultMeta}>
-                    {item.mediaType === "series" ? "📺 Series" : "🎬 Movie"}
-                    {item.releaseYear ? ` · ${item.releaseYear}` : ""}
-                    {item.tmdbRating > 0 ? ` · ⭐ ${item.tmdbRating.toFixed(1)}` : ""}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      ) : (
-        // ---- Step 2: Log form ------------------------------
-        <ScrollView style={styles.formScroll} keyboardShouldPersistTaps="handled">
-          {/* Selected media header */}
-          {selectedMedia && (
-            <View style={styles.selectedMedia}>
-              <Image
-                source={{ uri: selectedMedia.posterUrl ?? undefined }}
-                style={styles.selectedPoster}
-                contentFit="cover"
-              />
-              <View style={styles.selectedInfo}>
-                <Text style={styles.selectedTitle}>{selectedMedia.title}</Text>
-                <TouchableOpacity onPress={() => { setStep("search"); setSelectedMedia(null); }}>
-                  <Text style={styles.changeBtn}>Change</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
-          {/* Rating */}
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>Rating</Text>
-            <StarRating value={rating} onChange={setRating} size="large" />
-          </View>
-
-          {/* Mood */}
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>Your mood when watching</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View style={styles.moodRow}>
-                {MOODS.map((mood) => (
-                  <MoodChip
-                    key={mood.slug}
-                    mood={mood}
-                    selected={moodSlug === mood.slug}
-                    onPress={(slug) => setMoodSlug(moodSlug === slug ? null : slug)}
-                  />
-                ))}
-              </View>
-            </ScrollView>
-          </View>
-
-          {/* Review */}
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>Review (optional)</Text>
-            <TextInput
-              style={styles.reviewInput}
-              placeholder="What did you think?"
-              placeholderTextColor={Colors.textMuted}
-              value={review}
-              onChangeText={setReview}
-              multiline
-              numberOfLines={3}
-              textAlignVertical="top"
-            />
-          </View>
-
-          {/* Toggles */}
-          <View style={styles.toggleRow}>
-            <Toggle
-              label="Rewatch"
-              emoji="🔁"
-              value={isRewatch}
-              onToggle={() => setIsRewatch(!isRewatch)}
-            />
-            <Toggle
-              label="Private"
-              emoji="🔒"
-              value={isPrivate}
-              onToggle={() => setIsPrivate(!isPrivate)}
-            />
-          </View>
-
-          {/* Submit */}
-          <TouchableOpacity
-            style={[styles.submitBtn, createLog.isPending && styles.submitBtnDisabled]}
-            onPress={handleSubmit}
-            disabled={createLog.isPending || !selectedMedia}
-            activeOpacity={0.85}
-          >
-            {createLog.isPending ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.submitBtnText}>Log it 🎬</Text>
-            )}
+          <Text style={styles.headerTitle}>
+            {step === 1 ? "Search" : step === 2 ? "Quick check-in" : "Log"}
+          </Text>
+          <TouchableOpacity onPress={() => router.back()} style={styles.headerSide}>
+            <Ionicons name="close" size={22} color={Colors.textSecondary} />
           </TouchableOpacity>
-        </ScrollView>
+        </View>
+
+        {/* Step indicator */}
+        <View style={styles.stepDots}>
+          {([1, 2, 3] as const).map((s) => (
+            <View key={s} style={[styles.dot, step >= s && styles.dotActive]} />
+          ))}
+        </View>
+
+        {/* Step content */}
+        {step === 1 && <Step1Search onSelect={handleMediaSelect} />}
+        {step === 2 && (
+          <Step2PreMood
+            question={moodQuestion}
+            onSelect={handlePreMoodSelect}
+            onSkip={() => setStep(3)}
+          />
+        )}
+        {step === 3 && selectedMedia && (
+          <Step3LogForm
+            media={selectedMedia}
+            stamp={stamp}               onStampChange={setStamp}
+            platform={platform}         onPlatformChange={setPlatform}
+            interestHook={interestHook} onInterestHookChange={setInterestHook}
+            favCastId={favCastId}       onFavCastChange={setFavCastId}
+            review={review}             onReviewChange={setReview}
+            watchedAt={watchedAt}       onWatchedAtChange={setWatchedAt}
+            customDate={customDate}     onCustomDateChange={setCustomDate}
+            isRewatch={isRewatch}       onRewatchChange={setIsRewatch}
+            isPrivate={isPrivate}       onPrivateChange={setIsPrivate}
+            onSubmit={handleSubmit}
+            isSubmitting={createLog.isPending}
+          />
+        )}
+      </KeyboardAvoidingView>
+
+      {/* Post-watch check-in overlay */}
+      {showPostCheckin && (
+        <PostCheckin
+          energyLevel={energyLevel}
+          mindLevel={mindLevel}
+          onEnergyChange={setEnergyLevel}
+          onMindChange={setMindLevel}
+          onSubmit={handlePostCheckinSubmit}
+          onDismiss={() => setShowPostCheckin(false)}
+          isSubmitting={resolveEmotion.isPending}
+          insetBottom={insets.bottom}
+        />
       )}
-    </KeyboardAvoidingView>
+    </>
   );
 }
 
-function Toggle({ label, emoji, value, onToggle }: {
-  label: string; emoji: string; value: boolean; onToggle: () => void;
+// ============================================================
+// Step 1 — Search
+// ============================================================
+
+function Step1Search({ onSelect }: { onSelect: (r: SearchResult) => void }) {
+  const { query, setQuery, results, isLoading, getHistory } = useSearch();
+  const history = getHistory();
+
+  return (
+    <View style={styles.stepWrap}>
+      <View style={styles.searchBar}>
+        <Ionicons name="search" size={18} color={Colors.textMuted} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search movies & series…"
+          placeholderTextColor={Colors.textMuted}
+          value={query}
+          onChangeText={setQuery}
+          autoFocus
+          returnKeyType="search"
+        />
+        {query.length > 0 && (
+          <TouchableOpacity onPress={() => setQuery("")}>
+            <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <ScrollView showsVerticalScrollIndicator={false}>
+        {query.length === 0 && history.length > 0 && (
+          <View style={styles.historySection}>
+            <Text style={styles.historyLabel}>Recent</Text>
+            {history.map((item: string, i: number) => (
+              <TouchableOpacity
+                key={i}
+                style={styles.historyItem}
+                onPress={() => setQuery(item)}
+              >
+                <Ionicons name="time-outline" size={16} color={Colors.textMuted} />
+                <Text style={styles.historyText}>{item}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {results.map((r) => (
+          <TouchableOpacity
+            key={r.id}
+            style={styles.resultRow}
+            onPress={() => onSelect(r)}
+            activeOpacity={0.8}
+          >
+            <Image
+              source={{ uri: r.posterUrl ?? undefined }}
+              style={styles.resultPoster}
+              contentFit="cover"
+              placeholder={{ blurhash: BLURHASH }}
+            />
+            <View style={styles.resultInfo}>
+              <Text style={styles.resultTitle} numberOfLines={1}>{r.title}</Text>
+              <View style={styles.resultMeta}>
+                <View style={styles.resultBadge}>
+                  <Text style={styles.resultBadgeText}>
+                    {r.mediaType === "series" ? "Series" : "Movie"}
+                  </Text>
+                </View>
+                {r.releaseYear && (
+                  <Text style={styles.resultYear}>{r.releaseYear}</Text>
+                )}
+              </View>
+              {r.overview ? (
+                <Text style={styles.resultOverview} numberOfLines={2}>{r.overview}</Text>
+              ) : null}
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+          </TouchableOpacity>
+        ))}
+
+        {isLoading && (
+          <View style={styles.searchLoading}>
+            <Text style={styles.searchLoadingText}>Searching…</Text>
+          </View>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+// ============================================================
+// Step 2 — Pre-watch Mood Check-in
+// ============================================================
+
+function Step2PreMood({
+  question,
+  onSelect,
+  onSkip,
+}: {
+  question: MoodQuestion;
+  onSelect: (option: MoodQuestionOption) => void;
+  onSkip:   () => void;
+}) {
+  const [selected, setSelected] = useState<string | null>(null);
+
+  const rows = useMemo(() => {
+    const opts = question.options;
+    const pairs: MoodQuestionOption[][] = [];
+    for (let i = 0; i < opts.length; i += 2) {
+      pairs.push(opts.slice(i, i + 2));
+    }
+    return pairs;
+  }, [question]);
+
+  const handleSelect = (option: MoodQuestionOption) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelected(option.emotionSlug);
+    setTimeout(() => onSelect(option), 280);
+  };
+
+  return (
+    <View style={styles.stepWrap}>
+      <Text style={styles.moodQuestion}>{question.questionText}</Text>
+      <View style={styles.moodGrid}>
+        {rows.map((pair, ri) => (
+          <View key={ri} style={styles.moodRow}>
+            {pair.map((opt) => {
+              const active = selected === opt.emotionSlug;
+              return (
+                <TouchableOpacity
+                  key={opt.emotionSlug}
+                  style={[styles.moodTile, active && styles.moodTileActive]}
+                  onPress={() => handleSelect(opt)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.moodEmoji}>{opt.emoji}</Text>
+                  <Text style={[styles.moodLabel, active && styles.moodLabelActive]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ))}
+      </View>
+      <TouchableOpacity style={styles.skipBtn} onPress={onSkip}>
+        <Text style={styles.skipText}>Skip →</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ============================================================
+// Step 3 — Log Form
+// ============================================================
+
+interface Step3Props {
+  media:                SelectedMedia;
+  stamp:                StampKey | null;
+  onStampChange:        (s: StampKey) => void;
+  platform:             PlatformKey | null;
+  onPlatformChange:     (p: PlatformKey) => void;
+  interestHook:         InterestHookKey | null;
+  onInterestHookChange: (h: InterestHookKey) => void;
+  favCastId:            string | null;
+  onFavCastChange:      (id: string) => void;
+  review:               string;
+  onReviewChange:       (r: string) => void;
+  watchedAt:            "today" | "yesterday" | "other";
+  onWatchedAtChange:    (v: "today" | "yesterday" | "other") => void;
+  customDate:           string;
+  onCustomDateChange:   (v: string) => void;
+  isRewatch:            boolean;
+  onRewatchChange:      (v: boolean) => void;
+  isPrivate:            boolean;
+  onPrivateChange:      (v: boolean) => void;
+  onSubmit:             () => void;
+  isSubmitting:         boolean;
+}
+
+function Step3LogForm(p: Step3Props) {
+  const { data: mediaDetail } = useMediaDetail(
+    p.media.id, p.media.tmdbId, p.media.mediaType
+  );
+  const cast: CastMember[] = mediaDetail?.cast ?? [];
+
+  return (
+    <ScrollView style={styles.stepWrap} showsVerticalScrollIndicator={false}>
+
+      {/* Media card */}
+      <View style={styles.mediaCard}>
+        <Image
+          source={{ uri: p.media.posterUrl ?? undefined }}
+          style={styles.mediaCardPoster}
+          contentFit="cover"
+          placeholder={{ blurhash: BLURHASH }}
+        />
+        <View style={styles.mediaCardInfo}>
+          <Text style={styles.mediaCardTitle} numberOfLines={2}>{p.media.title}</Text>
+          {p.media.releaseYear && (
+            <Text style={styles.mediaCardYear}>{p.media.releaseYear}</Text>
+          )}
+          <View style={styles.mediaBadge}>
+            <Text style={styles.mediaBadgeText}>
+              {p.media.mediaType === "series" ? "Series" : "Movie"}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Reaction Stamp */}
+      <FormSection label="How was it?">
+        <View style={styles.stampGrid}>
+          {REACTION_STAMPS.map((s) => {
+            const active = p.stamp === s.key;
+            return (
+              <TouchableOpacity
+                key={s.key}
+                style={[
+                  styles.stampCard,
+                  s.large ? styles.stampCardLarge : null,
+                  { borderColor: active ? s.color : Colors.border },
+                  active ? { backgroundColor: s.color + "18" } : null,
+                ]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  p.onStampChange(s.key);
+                }}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.stampEmoji}>{s.emoji}</Text>
+                <Text style={[styles.stampLabel, active ? { color: s.color } : null]}>
+                  {s.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </FormSection>
+
+      {/* Watch Platform */}
+      <FormSection label="Where did you watch?">
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={styles.platformRow}>
+            {PLATFORMS.map((pl) => {
+              const active     = p.platform === pl.key;
+              const unofficial = pl.key === "unofficial";
+              return (
+                <TouchableOpacity
+                  key={pl.key}
+                  style={[
+                    styles.platformChip,
+                    active       ? styles.platformChipActive      : null,
+                    unofficial   ? styles.platformChipUnofficial  : null,
+                  ]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    p.onPlatformChange(pl.key);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.platformEmoji}>{pl.emoji}</Text>
+                  <Text style={[
+                    styles.platformLabel,
+                    active     ? styles.platformLabelActive     : null,
+                    unofficial ? styles.platformLabelUnofficial : null,
+                  ]}>
+                    {pl.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </ScrollView>
+      </FormSection>
+
+      {/* Interest hook */}
+      <FormSection label="What drew you to this?">
+        <View style={styles.hookRow}>
+          {INTEREST_HOOKS.map((h) => {
+            const active = p.interestHook === h.key;
+            return (
+              <TouchableOpacity
+                key={h.key}
+                style={[styles.hookChip, active && styles.hookChipActive]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  p.onInterestHookChange(h.key);
+                }}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.hookEmoji}>{h.emoji}</Text>
+                <Text style={[styles.hookLabel, active && styles.hookLabelActive]}>
+                  {h.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </FormSection>
+
+      {/* Favourite cast */}
+      {cast.length > 0 && (
+        <FormSection label="Who stood out?">
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={styles.castRow}>
+              {cast.map((member) => {
+                const active = p.favCastId === member.id;
+                return (
+                  <TouchableOpacity
+                    key={member.id}
+                    style={styles.castItem}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      p.onFavCastChange(member.id);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <View style={[styles.castPhoto, active && styles.castPhotoActive]}>
+                      {member.profileUrl ? (
+                        <Image
+                          source={{ uri: member.profileUrl }}
+                          style={StyleSheet.absoluteFill}
+                          contentFit="cover"
+                          placeholder={{ blurhash: BLURHASH }}
+                        />
+                      ) : (
+                        <View style={styles.castPhotoPlaceholder}>
+                          <Ionicons name="person" size={22} color={Colors.textMuted} />
+                        </View>
+                      )}
+                    </View>
+                    <Text style={[styles.castName, active && styles.castNameActive]} numberOfLines={1}>
+                      {member.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </ScrollView>
+        </FormSection>
+      )}
+
+      {/* Review */}
+      <FormSection label="Your thoughts">
+        <View style={styles.reviewBox}>
+          <TextInput
+            style={styles.reviewInput}
+            placeholder="What stayed with you? (optional)"
+            placeholderTextColor={Colors.textMuted}
+            value={p.review}
+            onChangeText={p.onReviewChange}
+            multiline
+            maxLength={300}
+            textAlignVertical="top"
+          />
+          <Text style={styles.reviewCount}>{p.review.length}/300</Text>
+        </View>
+      </FormSection>
+
+      {/* Date */}
+      <FormSection label="When did you watch?">
+        <View style={styles.datePills}>
+          {(["today", "yesterday", "other"] as const).map((v) => (
+            <TouchableOpacity
+              key={v}
+              style={[styles.datePill, p.watchedAt === v && styles.datePillActive]}
+              onPress={() => p.onWatchedAtChange(v)}
+            >
+              <Text style={[
+                styles.datePillText,
+                p.watchedAt === v && styles.datePillTextActive,
+              ]}>
+                {v === "today" ? "Today" : v === "yesterday" ? "Yesterday" : "Other"}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        {p.watchedAt === "other" && (
+          <TextInput
+            style={styles.dateInput}
+            placeholder="YYYY-MM-DD"
+            placeholderTextColor={Colors.textMuted}
+            value={p.customDate}
+            onChangeText={p.onCustomDateChange}
+            keyboardType="numbers-and-punctuation"
+          />
+        )}
+      </FormSection>
+
+      {/* Toggles */}
+      <View style={styles.toggleRow}>
+        <Toggle
+          label="Rewatch"
+          icon="refresh-outline"
+          value={p.isRewatch}
+          onToggle={() => p.onRewatchChange(!p.isRewatch)}
+        />
+        <Toggle
+          label="Private"
+          icon="lock-closed-outline"
+          value={p.isPrivate}
+          onToggle={() => p.onPrivateChange(!p.isPrivate)}
+        />
+      </View>
+
+      {/* Submit */}
+      <TouchableOpacity
+        style={styles.submitBtn}
+        onPress={p.onSubmit}
+        disabled={p.isSubmitting}
+        activeOpacity={0.85}
+      >
+        <LinearGradient
+          colors={Gradients.accentDeep}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.submitGradient}
+        >
+          <Text style={styles.submitText}>
+            {p.isSubmitting ? "Saving…" : "Save Log"}
+          </Text>
+        </LinearGradient>
+      </TouchableOpacity>
+
+      <View style={{ height: 40 }} />
+    </ScrollView>
+  );
+}
+
+// ============================================================
+// Post-watch Check-in
+// ============================================================
+
+function PostCheckin({
+  energyLevel, mindLevel,
+  onEnergyChange, onMindChange,
+  onSubmit, onDismiss, isSubmitting, insetBottom,
+}: {
+  energyLevel:    number | null;
+  mindLevel:      number | null;
+  onEnergyChange: (v: number) => void;
+  onMindChange:   (v: number) => void;
+  onSubmit:       () => void;
+  onDismiss:      () => void;
+  isSubmitting:   boolean;
+  insetBottom:    number;
+}) {
+  const slideAnim = useRef(new Animated.Value(300)).current;
+
+  useEffect(() => {
+    Animated.spring(slideAnim, {
+      toValue: 0, useNativeDriver: true, tension: 80, friction: 10,
+    }).start();
+  }, []);
+
+  const bothSelected = energyLevel !== null && mindLevel !== null;
+
+  return (
+    <Animated.View
+      style={[
+        styles.postCheckin,
+        { paddingBottom: insetBottom + 12 },
+        { transform: [{ translateY: slideAnim }] },
+      ]}
+    >
+      <View style={styles.postHandle} />
+      <Text style={styles.postTitle}>How are you feeling now?</Text>
+
+      <Text style={styles.postLabel}>Energy</Text>
+      <View style={styles.postRow}>
+        {ENERGY_OPTIONS.map((opt) => (
+          <TouchableOpacity
+            key={opt.level}
+            style={[styles.postPill, energyLevel === opt.level && styles.postPillActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              onEnergyChange(opt.level);
+            }}
+          >
+            <Text style={styles.postPillEmoji}>{opt.emoji}</Text>
+            <Text style={[
+              styles.postPillLabel,
+              energyLevel === opt.level && styles.postPillLabelActive,
+            ]}>
+              {opt.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <Text style={styles.postLabel}>Mind</Text>
+      <View style={styles.postRow}>
+        {MIND_OPTIONS.map((opt) => (
+          <TouchableOpacity
+            key={opt.level}
+            style={[styles.postPill, mindLevel === opt.level && styles.postPillActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              onMindChange(opt.level);
+            }}
+          >
+            <Text style={styles.postPillEmoji}>{opt.emoji}</Text>
+            <Text style={[
+              styles.postPillLabel,
+              mindLevel === opt.level && styles.postPillLabelActive,
+            ]}>
+              {opt.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <View style={styles.postActions}>
+        {bothSelected && (
+          <TouchableOpacity
+            style={styles.postSubmit}
+            onPress={onSubmit}
+            disabled={isSubmitting}
+          >
+            <LinearGradient
+              colors={Gradients.accentDeep}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.postSubmitGradient}
+            >
+              <Text style={styles.postSubmitText}>
+                {isSubmitting ? "Saving…" : "Done"}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity style={styles.postDismiss} onPress={onDismiss}>
+          <Text style={styles.postDismissText}>Maybe later</Text>
+        </TouchableOpacity>
+      </View>
+    </Animated.View>
+  );
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+
+function FormSection({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <View style={styles.formSection}>
+      <Text style={styles.formLabel}>{label}</Text>
+      {children}
+    </View>
+  );
+}
+
+function Toggle({
+  label, icon, value, onToggle,
+}: {
+  label: string; icon: string; value: boolean; onToggle: () => void;
 }) {
   return (
     <TouchableOpacity
       style={[styles.toggle, value && styles.toggleActive]}
-      onPress={onToggle}
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        onToggle();
+      }}
       activeOpacity={0.8}
     >
-      <Text style={styles.toggleEmoji}>{emoji}</Text>
-      <Text style={[styles.toggleLabel, value && styles.toggleLabelActive]}>{label}</Text>
+      <Ionicons name={icon as never} size={16} color={value ? Colors.accent : Colors.textSecondary} />
+      <Text style={[styles.toggleText, value && styles.toggleTextActive]}>{label}</Text>
     </TouchableOpacity>
   );
 }
 
+// ============================================================
+// Styles
+// ============================================================
+
 const styles = StyleSheet.create({
   container: {
-    flex:            1,
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius:  20,
-    borderTopRightRadius: 20,
+    flex: 1,
+    backgroundColor:      Colors.surfaceElevated,
+    borderTopLeftRadius:  24,
+    borderTopRightRadius: 24,
+    overflow:             "hidden",
   },
   header: {
-    alignItems:        "center",
-    paddingHorizontal: 20,
-    paddingTop:        12,
-    paddingBottom:     16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  handle: {
-    width:           40,
-    height:          4,
-    backgroundColor: Colors.border,
-    borderRadius:    2,
-    marginBottom:    16,
-  },
-  headerTitle: {
-    fontSize:   20,
-    fontWeight: "700",
-    color:      Colors.text,
-  },
-  closeBtn: {
-    position: "absolute",
-    right:    20,
-    top:      20,
-  },
-  closeBtnText: {
-    color:    Colors.textSecondary,
-    fontSize: 18,
-  },
-  // ---- Search step
-  searchContainer: {
-    flex:    1,
-    padding: 16,
-  },
-  searchInput: {
-    backgroundColor: Colors.surfaceElevated,
-    borderRadius:    12,
-    padding:         14,
-    color:           Colors.text,
-    fontSize:        16,
-    borderWidth:     1,
-    borderColor:     Colors.border,
-    marginBottom:    12,
-  },
-  searchSpinner: {
-    marginVertical: 12,
-  },
-  searchResult: {
-    flexDirection:  "row",
-    alignItems:     "center",
-    gap:            12,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  searchPoster: {
-    width:        48,
-    height:       72,
-    borderRadius: 6,
-    backgroundColor: Colors.surfaceElevated,
-  },
-  searchResultInfo: {
-    flex: 1,
-    gap:  4,
-  },
-  searchResultTitle: {
-    color:      Colors.text,
-    fontSize:   15,
-    fontWeight: "600",
-  },
-  searchResultMeta: {
-    color:    Colors.textSecondary,
-    fontSize: 12,
-  },
-  // ---- Form step
-  formScroll: {
-    flex: 1,
-  },
-  selectedMedia: {
-    flexDirection:   "row",
-    alignItems:      "center",
-    gap:             12,
-    padding:         16,
-    backgroundColor: Colors.surfaceElevated,
-    margin:          16,
-    borderRadius:    12,
-  },
-  selectedPoster: {
-    width:        56,
-    height:       84,
-    borderRadius: 8,
-    backgroundColor: Colors.border,
-  },
-  selectedInfo: {
-    flex: 1,
-    gap:  6,
-  },
-  selectedTitle: {
-    color:      Colors.text,
-    fontSize:   16,
-    fontWeight: "700",
-  },
-  changeBtn: {
-    color:    Colors.accent,
-    fontSize: 13,
-  },
-  field: {
-    paddingHorizontal: 16,
-    paddingVertical:   14,
-    gap:               10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  fieldLabel: {
-    color:      Colors.textSecondary,
-    fontSize:   12,
-    fontWeight: "600",
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-  },
-  moodRow: {
-    flexDirection: "row",
-    gap:           8,
-  },
-  reviewInput: {
-    backgroundColor: Colors.surfaceElevated,
-    borderRadius:    10,
-    padding:         12,
-    color:           Colors.text,
-    fontSize:        15,
-    minHeight:       80,
-    borderWidth:     1,
-    borderColor:     Colors.border,
-  },
-  toggleRow: {
     flexDirection:     "row",
-    gap:               12,
+    alignItems:        "center",
     paddingHorizontal: 16,
-    paddingVertical:   16,
+    paddingBottom:     12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.separator,
   },
-  toggle: {
-    flexDirection:   "row",
-    alignItems:      "center",
-    gap:             6,
-    backgroundColor: Colors.surfaceElevated,
-    borderRadius:    10,
+  headerSide: { width: 36 },
+  headerTitle: {
+    flex: 1, textAlign: "center",
+    color: Colors.text, fontSize: 16, fontWeight: "700",
+  },
+  stepDots: {
+    flexDirection: "row", justifyContent: "center", gap: 6, paddingVertical: 10,
+  },
+  dot:       { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.surface },
+  dotActive: { backgroundColor: Colors.accent, width: 18 },
+  stepWrap:  { flex: 1, paddingHorizontal: 20 },
+
+  // Search
+  searchBar: {
+    flexDirection:     "row",
+    alignItems:        "center",
+    gap:               10,
+    backgroundColor:   Colors.glass,
+    borderWidth:       1,
+    borderColor:       Colors.glassBorder,
+    borderRadius:      14,
     paddingHorizontal: 14,
-    paddingVertical:   10,
-    borderWidth:     1,
-    borderColor:     Colors.border,
+    paddingVertical:   11,
+    marginTop:         8,
+    marginBottom:      16,
   },
-  toggleActive: {
-    backgroundColor: Colors.accentDim,
-    borderColor:     Colors.accent,
+  searchInput:    { flex: 1, color: Colors.text, fontSize: 15 },
+  historySection: { marginBottom: 12 },
+  historyLabel: {
+    color: Colors.textMuted, fontSize: 11, fontWeight: "600",
+    textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8,
   },
-  toggleEmoji: {
-    fontSize: 16,
+  historyItem:  { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 },
+  historyText:  { color: Colors.textSecondary, fontSize: 14 },
+  resultRow: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: Colors.separator,
   },
-  toggleLabel: {
-    color:      Colors.textSecondary,
-    fontSize:   14,
-    fontWeight: "500",
+  resultPoster:    { width: 44, height: 66, borderRadius: 6, backgroundColor: Colors.surface },
+  resultInfo:      { flex: 1 },
+  resultTitle:     { color: Colors.text, fontSize: 14, fontWeight: "600", marginBottom: 4 },
+  resultMeta:      { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
+  resultBadge:     { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: Colors.accentDim },
+  resultBadgeText: { color: Colors.accentLight, fontSize: 10, fontWeight: "700" },
+  resultYear:      { color: Colors.textMuted, fontSize: 12 },
+  resultOverview:  { color: Colors.textMuted, fontSize: 12, lineHeight: 17 },
+  searchLoading:   { alignItems: "center", paddingVertical: 20 },
+  searchLoadingText: { color: Colors.textMuted, fontSize: 13 },
+
+  // Pre-mood
+  moodQuestion: {
+    color: Colors.text, fontSize: 20, fontWeight: "700",
+    lineHeight: 28, marginTop: 12, marginBottom: 28, textAlign: "center",
   },
-  toggleLabelActive: {
-    color: Colors.accent,
+  moodGrid:        { gap: 10 },
+  moodRow:         { flexDirection: "row", gap: 10 },
+  moodTile: {
+    flex: 1, alignItems: "center", justifyContent: "center",
+    paddingVertical: 18, borderRadius: 16,
+    backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, gap: 8,
   },
-  submitBtn: {
-    backgroundColor: Colors.accent,
-    margin:          16,
-    borderRadius:    14,
-    paddingVertical: 16,
-    alignItems:      "center",
-    marginBottom:    40,
+  moodTileActive:  { borderColor: Colors.accent, backgroundColor: Colors.accentDim },
+  moodEmoji:       { fontSize: 28 },
+  moodLabel:       { color: Colors.textSecondary, fontSize: 13, fontWeight: "500" },
+  moodLabelActive: { color: Colors.accent },
+  skipBtn:         { alignSelf: "flex-end", marginTop: 20, padding: 8 },
+  skipText:        { color: Colors.textMuted, fontSize: 14 },
+
+  // Form
+  mediaCard: {
+    flexDirection: "row", gap: 12, padding: 14,
+    backgroundColor: Colors.glass,
+    borderWidth: 1, borderColor: Colors.glassBorder,
+    borderRadius: 14, marginTop: 8, marginBottom: 4,
   },
-  submitBtnDisabled: {
-    opacity: 0.5,
+  mediaCardPoster: { width: 48, height: 72, borderRadius: 6, backgroundColor: Colors.surface },
+  mediaCardInfo:   { flex: 1, gap: 4, justifyContent: "center" },
+  mediaCardTitle:  { color: Colors.text, fontSize: 15, fontWeight: "700" },
+  mediaCardYear:   { color: Colors.textSecondary, fontSize: 13 },
+  mediaBadge:      {
+    alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 2,
+    borderRadius: 6, backgroundColor: Colors.accentDim,
   },
-  submitBtnText: {
-    color:      "#fff",
-    fontSize:   17,
-    fontWeight: "700",
+  mediaBadgeText:  { color: Colors.accentLight, fontSize: 10, fontWeight: "700" },
+
+  formSection:     { paddingTop: 20, gap: 10 },
+  formLabel:       { color: Colors.text, fontSize: 15, fontWeight: "600" },
+
+  // Stamps
+  stampGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  stampCard: {
+    width: (SW - 56) / 3, alignItems: "center",
+    paddingVertical: 14, borderRadius: 14,
+    backgroundColor: Colors.surface, borderWidth: 1.5, gap: 6,
   },
+  stampCardLarge:  { width: (SW - 48) / 2 },
+  stampEmoji:      { fontSize: 24 },
+  stampLabel:      { color: Colors.textSecondary, fontSize: 11, fontWeight: "600" },
+
+  // Platform
+  platformRow:            { flexDirection: "row", gap: 8, paddingBottom: 4 },
+  platformChip: {
+    alignItems: "center", paddingHorizontal: 14, paddingVertical: 10,
+    borderRadius: 12, backgroundColor: Colors.surface,
+    borderWidth: 1, borderColor: Colors.border, gap: 4,
+  },
+  platformChipActive:     { backgroundColor: Colors.accentDim, borderColor: Colors.accent },
+  platformChipUnofficial: { borderStyle: "dashed", borderColor: Colors.textMuted },
+  platformEmoji:          { fontSize: 18 },
+  platformLabel:          { color: Colors.textSecondary, fontSize: 10, fontWeight: "500" },
+  platformLabelActive:    { color: Colors.accent },
+  platformLabelUnofficial:{ color: Colors.textMuted },
+
+  // Hooks
+  hookRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  hookChip: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 12, paddingVertical: 8,
+    borderRadius: 20, backgroundColor: Colors.surface,
+    borderWidth: 1, borderColor: Colors.border,
+  },
+  hookChipActive:  { backgroundColor: Colors.accentDim, borderColor: Colors.accent },
+  hookEmoji:       { fontSize: 13 },
+  hookLabel:       { color: Colors.textSecondary, fontSize: 12, fontWeight: "500" },
+  hookLabelActive: { color: Colors.accent },
+
+  // Cast
+  castRow:            { flexDirection: "row", gap: 12, paddingBottom: 4 },
+  castItem:           { alignItems: "center", width: 64 },
+  castPhoto: {
+    width: 56, height: 56, borderRadius: 28,
+    backgroundColor: Colors.surface, overflow: "hidden",
+  },
+  castPhotoActive:      { borderWidth: 2.5, borderColor: Colors.accent },
+  castPhotoPlaceholder: { flex: 1, alignItems: "center", justifyContent: "center" },
+  castName:             { color: Colors.textSecondary, fontSize: 10, textAlign: "center", marginTop: 4 },
+  castNameActive:       { color: Colors.accent },
+
+  // Review
+  reviewBox: {
+    backgroundColor: Colors.surface, borderRadius: 12,
+    borderWidth: 1, borderColor: Colors.border, padding: 12,
+  },
+  reviewInput:  { color: Colors.text, fontSize: 14, lineHeight: 20, minHeight: 72 },
+  reviewCount:  { color: Colors.textMuted, fontSize: 11, alignSelf: "flex-end", marginTop: 4 },
+
+  // Date
+  datePills:           { flexDirection: "row", gap: 8 },
+  datePill: {
+    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
+    backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
+  },
+  datePillActive:      { backgroundColor: Colors.accentDim, borderColor: Colors.accent },
+  datePillText:        { color: Colors.textSecondary, fontSize: 13, fontWeight: "500" },
+  datePillTextActive:  { color: Colors.accent },
+  dateInput: {
+    backgroundColor: Colors.surface, borderRadius: 10,
+    borderWidth: 1, borderColor: Colors.border,
+    padding: 12, color: Colors.text, fontSize: 14, marginTop: 4,
+  },
+
+  // Toggles
+  toggleRow: { flexDirection: "row", gap: 10, marginTop: 20 },
+  toggle: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6, paddingVertical: 10, borderRadius: 12,
+    backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
+  },
+  toggleActive:     { backgroundColor: Colors.accentDim, borderColor: Colors.accent },
+  toggleText:       { color: Colors.textSecondary, fontSize: 13, fontWeight: "500" },
+  toggleTextActive: { color: Colors.accent },
+
+  // Submit
+  submitBtn:      { borderRadius: 16, overflow: "hidden", marginTop: 24 },
+  submitGradient: { alignItems: "center", justifyContent: "center", paddingVertical: 15 },
+  submitText:     { color: "#fff", fontSize: 16, fontWeight: "700", letterSpacing: 0.3 },
+
+  // Post check-in
+  postCheckin: {
+    position:             "absolute",
+    bottom:               0, left: 0, right: 0,
+    backgroundColor:      Colors.surfaceElevated,
+    borderTopLeftRadius:  24, borderTopRightRadius: 24,
+    paddingHorizontal:    20, paddingTop: 16,
+    borderTopWidth:       1, borderTopColor: Colors.glassBorder,
+  },
+  postHandle: {
+    width: 40, height: 4, borderRadius: 2,
+    backgroundColor: Colors.textMuted,
+    alignSelf: "center", marginBottom: 16,
+  },
+  postTitle:  {
+    color: Colors.text, fontSize: 18, fontWeight: "700",
+    marginBottom: 18, textAlign: "center",
+  },
+  postLabel:  {
+    color: Colors.textSecondary, fontSize: 12, fontWeight: "600",
+    textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8,
+  },
+  postRow:    { flexDirection: "row", gap: 6, marginBottom: 16, flexWrap: "wrap" },
+  postPill: {
+    alignItems: "center", flex: 1, minWidth: (SW - 88) / 5,
+    paddingVertical: 10, borderRadius: 12,
+    backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, gap: 4,
+  },
+  postPillActive:      { backgroundColor: Colors.accentDim, borderColor: Colors.accent },
+  postPillEmoji:       { fontSize: 18 },
+  postPillLabel:       { color: Colors.textMuted, fontSize: 9, fontWeight: "500", textAlign: "center" },
+  postPillLabelActive: { color: Colors.accent },
+  postActions:         { gap: 10, marginTop: 4 },
+  postSubmit:          { borderRadius: 14, overflow: "hidden" },
+  postSubmitGradient:  { alignItems: "center", paddingVertical: 13 },
+  postSubmitText:      { color: "#fff", fontSize: 15, fontWeight: "700" },
+  postDismiss:         { alignItems: "center", paddingVertical: 10 },
+  postDismissText:     { color: Colors.textMuted, fontSize: 13 },
 });

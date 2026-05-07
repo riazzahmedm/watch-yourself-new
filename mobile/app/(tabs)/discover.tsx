@@ -76,7 +76,7 @@ export default function DiscoverScreen() {
         <FlashList
           data={data?.results ?? []}
           numColumns={2}
-          estimatedItemSize={280}
+          overrideProps={{ estimatedItemSize: 280 }}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           refreshControl={
@@ -114,7 +114,16 @@ export default function DiscoverScreen() {
                 mediaType={item.mediaType}
                 moodScore={item.moodScore}
                 moodColor={currentMood.color}
-                onPress={() => router.push(`/media/${item.tmdbId}`)}
+                onPress={() =>
+                  router.push({
+                    pathname: "/media/[id]",
+                    params: {
+                      id:        item.id,
+                      tmdbId:    String(item.tmdbId),
+                      mediaType: item.mediaType,
+                    },
+                  })
+                }
               />
             </View>
           )}

@@ -1,10 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { callEdgeFunction } from "@/lib/supabase";
-import { createKVStorage } from "@/lib/kvStorage";
 
-const searchStorage = createKVStorage("search-history");
-const HISTORY_KEY = "recent_searches";
+// ---- Simple in-memory search history (no MMKV issues in Expo Go)
+// Survives session but not app restarts — enough for MVP.
+let _historyCache: string[] = [];
 const MAX_HISTORY = 8;
 
 export interface SearchResult {
@@ -33,16 +33,10 @@ export function useSearch() {
   });
 
   const saveToHistory = useCallback((title: string) => {
-    const raw     = searchStorage.getString(HISTORY_KEY);
-    const history: string[] = raw ? JSON.parse(raw) : [];
-    const updated = [title, ...history.filter((h) => h !== title)].slice(0, MAX_HISTORY);
-    searchStorage.set(HISTORY_KEY, JSON.stringify(updated));
+    _historyCache = [title, ..._historyCache.filter((h) => h !== title)].slice(0, MAX_HISTORY);
   }, []);
 
-  const getHistory = useCallback((): string[] => {
-    const raw = searchStorage.getString(HISTORY_KEY);
-    return raw ? JSON.parse(raw) : [];
-  }, []);
+  const getHistory = useCallback((): string[] => _historyCache, []);
 
   return {
     query,
@@ -55,11 +49,19 @@ export function useSearch() {
   };
 }
 
+// ---- Correct debounce using useEffect -------------------------
+
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
-  useCallback(() => {
-    const timer = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay])();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setDebounced(value), delay);
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [value, delay]);
+
   return debounced;
 }

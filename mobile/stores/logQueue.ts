@@ -20,20 +20,26 @@ const kvStorage = createKVStorage("log-queue");
 const MAX_RETRIES = 3;
 
 export interface QueuedLog {
-  localId:    string;          // uuid generated client-side
-  userId:     string;
-  mediaId:    string;
-  episodeId?: string;
-  logType:    "movie" | "series_episode" | "series_season" | "series_full";
-  watchedAt:  string;          // ISO date string
-  rating?:    number;
-  review?:    string;
-  moodTagId?: string;
-  isRewatch:  boolean;
-  isPrivate:  boolean;
-  retries:    number;
-  status:     "pending" | "submitting" | "failed";
-  createdAt:  string;
+  localId:            string;  // uuid generated client-side
+  userId:             string;
+  mediaId:            string;
+  episodeId?:         string;
+  logType:            "movie" | "series_episode" | "series_season" | "series_full";
+  watchedAt:          string;  // ISO date string
+  rating?:            number;
+  reactionStamp?:     string;
+  review?:            string;
+  moodTagId?:         string;
+  watchPlatform?:     string;
+  interestHook?:      string;
+  preWatchEmotionId?: string;
+  preWatchAnswer?:    string;
+  favoriteCastId?:    string;
+  isRewatch:          boolean;
+  isPrivate:          boolean;
+  retries:            number;
+  status:             "pending" | "submitting" | "failed";
+  createdAt:          string;
 }
 
 interface LogQueueState {
@@ -91,16 +97,22 @@ export const useLogQueue = create<LogQueueState>()(
 
           try {
             const { error } = await supabase.from("logs").insert({
-              user_id:     log.userId,
-              media_id:    log.mediaId,
-              episode_id:  log.episodeId ?? null,
-              log_type:    log.logType,
-              watched_at:  log.watchedAt,
-              rating:      log.rating ?? null,
-              review:      log.review ?? null,
-              mood_tag_id: log.moodTagId ?? null,
-              is_rewatch:  log.isRewatch,
-              is_private:  log.isPrivate,
+              user_id:               log.userId,
+              media_id:              log.mediaId,
+              episode_id:            log.episodeId ?? null,
+              log_type:              log.logType,
+              watched_at:            log.watchedAt,
+              rating:                log.rating ?? null,
+              reaction_stamp:        log.reactionStamp ?? null,
+              review:                log.review ?? null,
+              mood_tag_id:           log.moodTagId ?? null,
+              watch_platform:        log.watchPlatform ?? null,
+              interest_hook:         log.interestHook ?? null,
+              pre_watch_emotion_id:  log.preWatchEmotionId ?? null,
+              pre_watch_answer:      log.preWatchAnswer ?? null,
+              favorite_cast_id:      log.favoriteCastId ?? null,
+              is_rewatch:            log.isRewatch,
+              is_private:            log.isPrivate,
             });
 
             if (error) throw error;

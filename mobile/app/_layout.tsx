@@ -10,7 +10,7 @@
 
 import { useEffect } from "react";
 import { AppState, AppStateStatus } from "react-native";
-import { Slot, useRouter, useSegments } from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
 import * as Linking from "expo-linking";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -136,5 +136,26 @@ function AuthGate() {
     }
   }, [session, isLoading, isOnboarded, segments, router]);
 
-  return <Slot />;
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="index"       options={{ animation: "none" }} />
+      <Stack.Screen name="auth"        options={{ animation: "fade" }} />
+      <Stack.Screen name="onboarding"  options={{ animation: "fade" }} />
+      <Stack.Screen name="(tabs)"      options={{ animation: "none" }} />
+      <Stack.Screen
+        name="log-sheet"
+        options={{
+          presentation:   "modal",
+          animation:      "slide_from_bottom",
+          gestureEnabled: true,
+        }}
+      />
+      <Stack.Screen
+        name="media/[id]"
+        options={{
+          animation: "slide_from_right",
+        }}
+      />
+    </Stack>
+  );
 }

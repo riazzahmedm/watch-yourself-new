@@ -15,6 +15,15 @@ import { Colors } from "@/constants/colors";
 import { useLogs, useDeleteLog } from "@/hooks/useLogs";
 import { StarRating } from "@/components/StarRating";
 
+const STAMP_LABELS: Record<string, string> = {
+  meh:          "😑 Meh",
+  decent:       "🙂 Decent",
+  liked_it:     "👍 Liked it",
+  loved_it:     "❤️ Loved it",
+  mind_shifted: "🌀 Mind shifted",
+  life_film:    "✨ Life film",
+};
+
 export default function LibraryScreen() {
   const router    = useRouter();
   const { data: logs, isLoading, refetch, isFetching } = useLogs(100);
@@ -65,7 +74,7 @@ export default function LibraryScreen() {
 
       <FlashList
         data={filtered}
-        estimatedItemSize={88}
+        overrideProps={{ estimatedItemSize: 88 }}
         keyExtractor={(item) => item.id}
         refreshControl={
           <RefreshControl
@@ -77,7 +86,16 @@ export default function LibraryScreen() {
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.logRow}
-            onPress={() => router.push(`/library/${item.id}` as never)}
+            onPress={() =>
+              router.push({
+                pathname: "/media/[id]",
+                params: {
+                  id:        item.media.id,
+                  tmdbId:    String(item.media.tmdbId),
+                  mediaType: item.media.mediaType,
+                },
+              })
+            }
             onLongPress={() => handleDelete(item.id, item.media.title)}
             activeOpacity={0.8}
           >
@@ -103,9 +121,13 @@ export default function LibraryScreen() {
                   <Text style={styles.rewatchBadge}>🔁 Rewatch</Text>
                 )}
               </View>
-              {item.rating != null && (
+              {item.reactionStamp ? (
+                <Text style={styles.stampLabel}>
+                  {STAMP_LABELS[item.reactionStamp] ?? item.reactionStamp}
+                </Text>
+              ) : item.rating != null ? (
                 <StarRating value={item.rating} onChange={() => {}} readonly size="small" />
-              )}
+              ) : null}
             </View>
             <Text style={styles.chevron}>›</Text>
           </TouchableOpacity>
@@ -149,6 +171,7 @@ const styles = StyleSheet.create({
   logDate:          { color: Colors.textSecondary, fontSize: 12 },
   logMood:          { fontSize: 14 },
   rewatchBadge:     { color: Colors.textMuted, fontSize: 11 },
+  stampLabel:       { color: Colors.accent, fontSize: 12, fontWeight: "600" },
   chevron:          { color: Colors.textMuted, fontSize: 22 },
   empty:            { alignItems: "center", paddingTop: 100, gap: 8 },
   emptyEmoji:       { fontSize: 48 },

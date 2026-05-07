@@ -72,6 +72,32 @@ export interface TmdbKeyword {
   name: string;
 }
 
+export interface TmdbCastMember {
+  id: number;          // tmdb_person_id
+  name: string;
+  character: string;
+  profile_path: string | null;
+  order: number;       // billing order
+  known_for_department: string;
+}
+
+export interface TmdbVideo {
+  id: string;
+  key: string;         // YouTube video ID
+  name: string;
+  site: string;        // 'YouTube'
+  type: string;        // 'Trailer' | 'Teaser' | 'Clip' | 'Featurette'
+  official: boolean;
+  published_at: string;
+}
+
+export interface TmdbWatchProvider {
+  provider_id: number;
+  provider_name: string;
+  logo_path: string;
+  display_priority: number;
+}
+
 // ---------- Helpers ------------------------------------------
 
 function getTmdbKey(): string {
@@ -123,29 +149,60 @@ export async function searchMulti(query: string, page = 1): Promise<TmdbSearchRe
   return data.results.filter((r) => r.media_type === "movie" || r.media_type === "tv");
 }
 
-/** Full movie detail (includes genres, runtime, keywords via append_to_response) */
-export async function getMovieDetail(tmdbId: number): Promise<TmdbMovie & { keywords: TmdbKeyword[] }> {
-  const data = await tmdbFetch<TmdbMovie & { keywords: { keywords: TmdbKeyword[] } }>(
+export interface TmdbDetailExtras {
+  keywords:       TmdbKeyword[];
+  cast:           TmdbCastMember[];
+  videos:         TmdbVideo[];
+  watchProviders: Record<string, {
+    flatrate?: TmdbWatchProvider[];
+    rent?:     TmdbWatchProvider[];
+    buy?:      TmdbWatchProvider[];
+  }>;
+}
+
+/** Full movie detail with cast, videos, watch providers and keywords */
+export async function getMovieDetail(
+  tmdbId: number
+): Promise<TmdbMovie & TmdbDetailExtras> {
+  type Raw = TmdbMovie & {
+    keywords:         { keywords: TmdbKeyword[] };
+    credits:          { cast: TmdbCastMember[] };
+    videos:           { results: TmdbVideo[] };
+    "watch/providers": { results: Record<string, { flatrate?: TmdbWatchProvider[]; rent?: TmdbWatchProvider[]; buy?: TmdbWatchProvider[] }> };
+  };
+  const data = await tmdbFetch<Raw>(
     `/movie/${tmdbId}`,
-    { append_to_response: "keywords" }
+    { append_to_response: "keywords,credits,videos,watch/providers" }
   );
   return {
     ...data,
-    keywords: data.keywords?.keywords ?? [],
+    keywords:       data.keywords?.keywords ?? [],
+    cast:           data.credits?.cast ?? [],
+    videos:         data.videos?.results ?? [],
+    watchProviders: data["watch/providers"]?.results ?? {},
   };
 }
 
-/** Full series detail */
+/** Full series detail with cast, videos, watch providers and keywords */
 export async function getSeriesDetail(
   tmdbId: number
-): Promise<TmdbSeries & { keywords: TmdbKeyword[] }> {
-  const data = await tmdbFetch<TmdbSeries & { keywords: { results: TmdbKeyword[] } }>(
+): Promise<TmdbSeries & TmdbDetailExtras> {
+  type Raw = TmdbSeries & {
+    keywords:         { results: TmdbKeyword[] };
+    credits:          { cast: TmdbCastMember[] };
+    videos:           { results: TmdbVideo[] };
+    "watch/providers": { results: Record<string, { flatrate?: TmdbWatchProvider[]; rent?: TmdbWatchProvider[]; buy?: TmdbWatchProvider[] }> };
+  };
+  const data = await tmdbFetch<Raw>(
     `/tv/${tmdbId}`,
-    { append_to_response: "keywords" }
+    { append_to_response: "keywords,credits,videos,watch/providers" }
   );
   return {
     ...data,
-    keywords: data.keywords?.results ?? [],
+    keywords:       data.keywords?.results ?? [],
+    cast:           data.credits?.cast ?? [],
+    videos:         data.videos?.results ?? [],
+    watchProviders: data["watch/providers"]?.results ?? {},
   };
 }
 
@@ -194,4 +251,14 @@ export function posterUrl(path: string | null, size: "w185" | "w342" | "w500" = 
 export function backdropUrl(path: string | null): string | null {
   if (!path) return null;
   return `${TMDB_IMAGE_BASE}/w1280${path}`;
+}
+
+export function profileUrl(path: string | null): string | null {
+  if (!path) return null;
+  return `${TMDB_IMAGE_BASE}/w185${path}`;
+}
+
+export function providerLogoUrl(path: string | null): string | null {
+  if (!path) return null;
+  return `${TMDB_IMAGE_BASE}/w92${path}`;
 }
