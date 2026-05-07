@@ -81,7 +81,11 @@ Deno.serve(async (req: Request) => {
 
     const mediaExpiry = new Date();
     mediaExpiry.setDate(mediaExpiry.getDate() - MEDIA_CACHE_TTL_DAYS);
-    const mediaFresh = cached && new Date(cached.cached_at) > mediaExpiry;
+    // A series row is stale if cached_at is old OR number_of_seasons was never written
+    // (tmdb-search resets cached_at without writing number_of_seasons, so we must
+    //  treat a null number_of_seasons as a cache miss for series).
+    const seasonCountMissing = mediaType === "series" && (cached?.number_of_seasons == null);
+    const mediaFresh = cached && new Date(cached.cached_at) > mediaExpiry && !seasonCountMissing;
 
     let mediaRow = cached;
 
