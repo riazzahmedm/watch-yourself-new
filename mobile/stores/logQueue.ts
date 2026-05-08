@@ -12,9 +12,16 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import * as ExpoCrypto from "expo-crypto";
 import { supabase } from "@/lib/supabase";
 import { createKVStorage } from "@/lib/kvStorage";
+
+/** Hermes-safe UUID v4 — avoids Web API `crypto` global which doesn't exist in React Native */
+function uuidv4(): string {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
 
 const kvStorage = createKVStorage("log-queue");
 
@@ -61,7 +68,7 @@ export const useLogQueue = create<LogQueueState>()(
       enqueue: (log) => {
         const entry: QueuedLog = {
           ...log,
-          localId:   ExpoCrypto.randomUUID(),
+          localId:   uuidv4(),
           retries:   0,
           status:    "pending",
           createdAt: new Date().toISOString(),
