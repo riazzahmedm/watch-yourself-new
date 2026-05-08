@@ -30,6 +30,7 @@ import * as Haptics from "expo-haptics";
 import { toast } from "sonner-native";
 
 import { Colors, Gradients } from "@/constants/colors";
+import { MOODS } from "@/constants/moods";
 import { useSearch, type SearchResult } from "@/hooks/useSearch";
 import { useCreateLog, type LogEntry } from "@/hooks/useLogs";
 import { useAuthStore } from "@/stores/auth";
@@ -112,6 +113,7 @@ export default function LogSheet() {
     preSelectedTmdbId?:    string;
     preSelectedMediaType?: string;
     interestHook?:         string;
+    moodSlug?:             string;
   }>();
 
   const preSelected: SelectedMedia | null = params.preSelectedMediaId
@@ -155,6 +157,13 @@ export default function LogSheet() {
   const [submittedLogId,  setSubmittedLogId]  = useState<string | null>(null);
   const [energyLevel,     setEnergyLevel]     = useState<number | null>(null);
   const [mindLevel,       setMindLevel]       = useState<number | null>(null);
+
+  // Mood feedback
+  const [selectedMoodSlug,   setSelectedMoodSlug]   = useState<string | null>(
+    params.moodSlug || null
+  );
+  const [resolvedMoodTagId,  setResolvedMoodTagId]  = useState<string | null>(null);
+  const [showMoodFeedback,   setShowMoodFeedback]   = useState(false);
 
   const createLog      = useCreateLog();
   const resolveEmotion = useResolveEmotion();
@@ -231,6 +240,18 @@ export default function LogSheet() {
       preEmotionId = data?.id;
     }
 
+    // Look up mood_tag UUID for feedback prompt (best-effort)
+    let moodTagId: string | undefined;
+    if (selectedMoodSlug) {
+      const { data: moodRow } = await supabase
+        .from("mood_tags")
+        .select("id")
+        .eq("slug", selectedMoodSlug)
+        .single();
+      moodTagId = moodRow?.id ?? undefined;
+      setResolvedMoodTagId(moodTagId ?? null);
+    }
+
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
     const derivedLogType: LogEntry["logType"] =
@@ -254,6 +275,7 @@ export default function LogSheet() {
         interestHook:        interestHook ?? undefined,
         preWatchEmotionId:   preEmotionId,
         preWatchAnswer:      preEmotion?.answer,
+        moodTagId:           moodTagId,
         favoriteCastId:      favCastId ?? undefined,
         review:              review.trim() || undefined,
         isRewatch,
@@ -275,7 +297,7 @@ export default function LogSheet() {
   }, [
     selectedMedia, user, stamp, platform, interestHook, preEmotion,
     favCastId, review, isRewatch, isPrivate, getWatchedAtDate, createLog, router,
-    selectedSeason, selectedEpisodeId, selectedEpisodeSeason,
+    selectedSeason, selectedEpisodeId, selectedEpisodeSeason, selectedMoodSlug,
   ]);
 
   const handlePostCheckinSubmit = useCallback(async () => {
@@ -291,7 +313,8 @@ export default function LogSheet() {
       // Silently fail — post checkin is optional
     }
     setShowPostCheckin(false);
-  }, [submittedLogId, energyLevel, mindLevel, resolveEmotion]);
+    if (resolvedMoodTagId) setShowMoodFeedback(true);
+  }, [submittedLogId, energyLevel, mindLevel, resolveEmotion, resolvedMoodTagId]);
 
   return (
     <>
@@ -349,6 +372,7 @@ export default function LogSheet() {
               setSelectedEpisodeId(epId);
               setSelectedEpisodeSeason(epSeason);
             }}
+            selectedMoodSlug={selectedMoodSlug} onMoodSlugChange={setSelectedMoodSlug}
             stamp={stamp}               onStampChange={setStamp}
             platform={platform}         onPlatformChange={setPlatform}
             interestHook={interestHook} onInterestHookChange={setInterestHook}
@@ -372,8 +396,23 @@ export default function LogSheet() {
           onEnergyChange={setEnergyLevel}
           onMindChange={setMindLevel}
           onSubmit={handlePostCheckinSubmit}
-          onDismiss={() => setShowPostCheckin(false)}
+          onDismiss={() => {
+            setShowPostCheckin(false);
+            if (resolvedMoodTagId) setShowMoodFeedback(true);
+          }}
           isSubmitting={resolveEmotion.isPending}
+          insetBottom={insets.bottom}
+        />
+      )}
+
+      {showMoodFeedback && resolvedMoodTagId && selectedMedia && user && (
+        <MoodFeedback
+          moodSlug={selectedMoodSlug!}
+          logId={submittedLogId!}
+          mediaId={selectedMedia.id}
+          moodTagId={resolvedMoodTagId}
+          userId={user.id}
+          onDismiss={() => setShowMoodFeedback(false)}
           insetBottom={insets.bottom}
         />
       )}
@@ -542,6 +581,9 @@ interface Step3Props {
   selectedEpisodeId:    string | null;
   onSeasonChange:       (s: number | null) => void;
   onEpisodeChange:      (episodeId: string | null, seasonNumber: number | null) => void;
+  // Mood context
+  selectedMoodSlug:     string | null;
+  onMoodSlugChange:     (slug: string | null) => void;
   // Log fields
   stamp:                StampKey | null;
   onStampChange:        (s: StampKey) => void;
@@ -619,6 +661,36 @@ function Step3LogForm(p: Step3Props) {
           />
         ) : null
       )}
+
+      {/* Mood context — pre-filled from Discover, changeable */}
+      <FormSection label="What mood were you in?">
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={styles.moodChipRow}>
+            {MOODS.map((mood) => {
+              const active = p.selectedMoodSlug === mood.slug;
+              return (
+                <TouchableOpacity
+                  key={mood.slug}
+                  style={[
+                    styles.moodChip,
+                    active && { backgroundColor: mood.color + "22", borderColor: mood.color + "99" },
+                  ]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    p.onMoodSlugChange(active ? null : mood.slug);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.moodChipEmoji}>{mood.emoji}</Text>
+                  <Text style={[styles.moodChipLabel, active && { color: mood.color }]}>
+                    {mood.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </ScrollView>
+      </FormSection>
 
       {/* Reaction Stamp */}
       <FormSection label="How was it?">
@@ -1143,6 +1215,90 @@ function Toggle({
 }
 
 // ============================================================
+// Mood Feedback Overlay
+// ============================================================
+
+function MoodFeedback({
+  moodSlug, logId, mediaId, moodTagId, userId, onDismiss, insetBottom,
+}: {
+  moodSlug:     string;
+  logId:        string;
+  mediaId:      string;
+  moodTagId:    string;
+  userId:       string;
+  onDismiss:    () => void;
+  insetBottom:  number;
+}) {
+  const mood      = MOODS.find((m) => m.slug === moodSlug);
+  const slideAnim = useRef(new Animated.Value(300)).current;
+
+  useEffect(() => {
+    Animated.spring(slideAnim, {
+      toValue: 0, useNativeDriver: true, tension: 80, friction: 10,
+    }).start();
+  }, []);
+
+  const handleResponse = async (response: "yes" | "somewhat" | "no") => {
+    onDismiss();
+    // Fire-and-forget — never block on this
+    try {
+      await supabase.from("mood_feedback").insert({
+        user_id:        userId,
+        log_id:         logId,
+        media_id:       mediaId,
+        mood_tag_id:    moodTagId,
+        match_response: response,
+      });
+    } catch {
+      // Silently ignore — feedback is best-effort
+    }
+  };
+
+  const RESPONSES: { key: "yes" | "somewhat" | "no"; label: string; emoji: string }[] = [
+    { key: "yes",      label: "Yes, it matched",    emoji: "👍" },
+    { key: "somewhat", label: "Somewhat",            emoji: "🤷" },
+    { key: "no",       label: "Not really",          emoji: "👎" },
+  ];
+
+  return (
+    <Animated.View
+      style={[
+        styles.postCheckin,
+        { paddingBottom: insetBottom + 12 },
+        { transform: [{ translateY: slideAnim }] },
+      ]}
+    >
+      <View style={styles.postHandle} />
+      <Text style={styles.postTitle}>
+        Did{mood ? ` ${mood.emoji} ${mood.label}` : " this mood"} match?
+      </Text>
+      <Text style={styles.moodFeedbackSub}>Help us tune your recommendations</Text>
+
+      <View style={styles.moodFeedbackBtns}>
+        {RESPONSES.map((r) => (
+          <TouchableOpacity
+            key={r.key}
+            style={styles.moodFeedbackBtn}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              handleResponse(r.key);
+            }}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.moodFeedbackBtnEmoji}>{r.emoji}</Text>
+            <Text style={styles.moodFeedbackBtnLabel}>{r.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <TouchableOpacity onPress={onDismiss} style={styles.moodFeedbackSkip}>
+        <Text style={styles.moodFeedbackSkipText}>Skip</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+// ============================================================
 // Styles
 // ============================================================
 
@@ -1423,4 +1579,28 @@ const styles = StyleSheet.create({
   postSubmitText:      { color: "#fff", fontSize: 15, fontWeight: "700" },
   postDismiss:         { alignItems: "center", paddingVertical: 10 },
   postDismissText:     { color: Colors.textMuted, fontSize: 13 },
+
+  // Mood chip row in Step 3
+  moodChipRow:  { flexDirection: "row", gap: 8, paddingVertical: 2 },
+  moodChip: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
+    backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
+  },
+  moodChipEmoji: { fontSize: 14 },
+  moodChipLabel: { color: Colors.textSecondary, fontSize: 12, fontWeight: "500" },
+
+  // Mood feedback overlay
+  moodFeedbackSub:       { color: Colors.textSecondary, fontSize: 13, textAlign: "center", marginTop: -12, marginBottom: 20 },
+  moodFeedbackBtns:      { gap: 10, marginBottom: 8 },
+  moodFeedbackBtn: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    paddingVertical: 14, paddingHorizontal: 16,
+    backgroundColor: Colors.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: Colors.border,
+  },
+  moodFeedbackBtnEmoji:  { fontSize: 22 },
+  moodFeedbackBtnLabel:  { color: Colors.text, fontSize: 15, fontWeight: "600" },
+  moodFeedbackSkip:      { alignItems: "center", paddingVertical: 10 },
+  moodFeedbackSkipText:  { color: Colors.textMuted, fontSize: 13 },
 });

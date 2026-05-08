@@ -121,6 +121,7 @@ export default function DiscoverScreen() {
                       id:        item.id,
                       tmdbId:    String(item.tmdbId),
                       mediaType: item.mediaType,
+                      moodSlug:  activeMood,
                     },
                   })
                 }

@@ -58,11 +58,12 @@ type InterestHookKey = typeof INTEREST_HOOKS[number]["key"];
 // ---- Component ----------------------------------------------
 
 export default function MediaDetailScreen() {
-  const { id, tmdbId, mediaType, interestHook: presetHook } = useLocalSearchParams<{
+  const { id, tmdbId, mediaType, interestHook: presetHook, moodSlug } = useLocalSearchParams<{
     id:           string;
     tmdbId:       string;
     mediaType:    "movie" | "series";
     interestHook?: string;
+    moodSlug?:    string;
   }>();
   const router  = useRouter();
   const insets  = useSafeAreaInsets();
@@ -102,6 +103,7 @@ export default function MediaDetailScreen() {
         preSelectedMediaType: mediaType,
         preSelectedTmdbId:    tmdbId,
         interestHook:         selectedHook ?? "",
+        moodSlug:             moodSlug ?? "",
       },
     });
   }, [id, mediaType, tmdbId, selectedHook, router]);
