@@ -12,6 +12,7 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import * as ExpoCrypto from "expo-crypto";
 import { supabase } from "@/lib/supabase";
 import { createKVStorage } from "@/lib/kvStorage";
 
@@ -60,7 +61,7 @@ export const useLogQueue = create<LogQueueState>()(
       enqueue: (log) => {
         const entry: QueuedLog = {
           ...log,
-          localId:   crypto.randomUUID(),
+          localId:   ExpoCrypto.randomUUID(),
           retries:   0,
           status:    "pending",
           createdAt: new Date().toISOString(),
